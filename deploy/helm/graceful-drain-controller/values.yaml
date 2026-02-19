@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: your-registry/graceful-drain-controller
-  tag: latest
+  tag: ""  # Set to a specific version, e.g. "v0.1.0"
   pullPolicy: IfNotPresent
 
 resources:

@@ -32,11 +32,14 @@ type testEnv struct {
 
 func setupTestEnv(t *testing.T) *testEnv {
 	t.Helper()
+
 	env := &envtest.Environment{}
+
 	cfg, err := env.Start()
 	if err != nil {
 		t.Fatalf("start envtest: %v", err)
 	}
+
 	t.Cleanup(func() {
 		if err := env.Stop(); err != nil {
 			t.Errorf("stop envtest: %v", err)
@@ -48,11 +51,13 @@ func setupTestEnv(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("create manager for indexer: %v", err)
 	}
+
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
 		pod, ok := o.(*corev1.Pod)
 		if !ok || pod.Spec.NodeName == "" {
 			return nil
 		}
+
 		return []string{pod.Spec.NodeName}
 	}); err != nil {
 		t.Fatalf("index pods by nodeName: %v", err)
@@ -61,11 +66,13 @@ func setupTestEnv(t *testing.T) *testEnv {
 	// Start cache in the background.
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
+
 	go func() {
 		if err := mgr.GetCache().Start(ctx); err != nil {
-			t.Errorf("start cache: %v", err) //nolint:testifylint
+			t.Errorf("start cache: %v", err)
 		}
 	}()
+
 	if !mgr.GetCache().WaitForCacheSync(ctx) {
 		t.Fatal("cache sync failed")
 	}
@@ -78,35 +85,43 @@ func setupTestEnv(t *testing.T) *testEnv {
 }
 
 func newReconciler(te *testEnv, opts ...func(*NodeReconciler)) *NodeReconciler {
-	r := &NodeReconciler{
+	reconciler := &NodeReconciler{
 		Client:          te.client,
 		Recorder:        te.recorder,
 		DrainTaints:     defaultDrainTaints,
 		RequeueInterval: 5 * time.Second,
 		RolloutTimeout:  5 * time.Minute,
 	}
+
 	for _, o := range opts {
-		o(r)
+		o(reconciler)
 	}
-	return r
+
+	return reconciler
 }
 
-func int32Ptr(i int32) *int32 { return &i }
+func int32Ptr(val int32) *int32 { return &val }
 
-func createNode(t *testing.T, ctx context.Context, c client.Client, name string, taints []corev1.Taint) *corev1.Node {
+func createNode(t *testing.T, ctx context.Context, cl client.Client, name string, taints []corev1.Taint) *corev1.Node {
 	t.Helper()
+
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec:       corev1.NodeSpec{Taints: taints},
 	}
-	if err := c.Create(ctx, node); err != nil {
+	if err := cl.Create(ctx, node); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
+
 	return node
 }
 
-func createDeployment(t *testing.T, ctx context.Context, c client.Client, namespace, name string, replicas int32, annotations map[string]string) *appsv1.Deployment {
+func createDeployment(
+	t *testing.T, ctx context.Context, cl client.Client,
+	namespace, name string, replicas int32, annotations map[string]string,
+) *appsv1.Deployment {
 	t.Helper()
+
 	maxSurge := intstr.FromInt32(1)
 	maxUnavail := intstr.FromInt32(0)
 	deploy := &appsv1.Deployment{
@@ -136,16 +151,19 @@ func createDeployment(t *testing.T, ctx context.Context, c client.Client, namesp
 			},
 		},
 	}
-	if err := c.Create(ctx, deploy); err != nil {
+
+	if err := cl.Create(ctx, deploy); err != nil {
 		t.Fatalf("create deployment: %v", err)
 	}
+
 	return deploy
 }
 
-func createReplicaSet(t *testing.T, ctx context.Context, c client.Client, deploy *appsv1.Deployment) *appsv1.ReplicaSet {
+func createReplicaSet(t *testing.T, ctx context.Context, cl client.Client, deploy *appsv1.Deployment) *appsv1.ReplicaSet {
 	t.Helper()
+
 	isController := true
-	rs := &appsv1.ReplicaSet{
+	replicaSet := &appsv1.ReplicaSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      deploy.Name + "-abc123",
 			Namespace: deploy.Namespace,
@@ -164,25 +182,28 @@ func createReplicaSet(t *testing.T, ctx context.Context, c client.Client, deploy
 			Template: deploy.Spec.Template,
 		},
 	}
-	if err := c.Create(ctx, rs); err != nil {
+
+	if err := cl.Create(ctx, replicaSet); err != nil {
 		t.Fatalf("create replicaset: %v", err)
 	}
-	return rs
+
+	return replicaSet
 }
 
-func createPod(t *testing.T, ctx context.Context, c client.Client, namespace, name, nodeName string, rs *appsv1.ReplicaSet) *corev1.Pod {
+func createPod(t *testing.T, ctx context.Context, cl client.Client, namespace, name, nodeName string, replicaSet *appsv1.ReplicaSet) {
 	t.Helper()
+
 	isController := true
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    map[string]string{"app": rs.Labels["app"]},
+			Labels:    map[string]string{"app": replicaSet.Labels["app"]},
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: "apps/v1",
 				Kind:       "ReplicaSet",
-				Name:       rs.Name,
-				UID:        rs.UID,
+				Name:       replicaSet.Name,
+				UID:        replicaSet.UID,
 				Controller: &isController,
 			}},
 		},
@@ -194,26 +215,30 @@ func createPod(t *testing.T, ctx context.Context, c client.Client, namespace, na
 			}},
 		},
 	}
-	if err := c.Create(ctx, pod); err != nil {
+
+	if err := cl.Create(ctx, pod); err != nil {
 		t.Fatalf("create pod: %v", err)
 	}
+
 	// Update status to Running.
 	pod.Status.Phase = corev1.PodRunning
-	if err := c.Status().Update(ctx, pod); err != nil {
+	if err := cl.Status().Update(ctx, pod); err != nil {
 		t.Fatalf("update pod status: %v", err)
 	}
-	return pod
 }
 
-func createNamespace(t *testing.T, ctx context.Context, c client.Client, name string) {
+func createNamespace(t *testing.T, ctx context.Context, cl client.Client, name string) {
 	t.Helper()
+
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
-	if err := c.Create(ctx, ns); err != nil {
+	if err := cl.Create(ctx, ns); err != nil {
 		t.Fatalf("create namespace: %v", err)
 	}
 }
 
 func TestHappyPath(t *testing.T) {
+	t.Parallel()
+
 	te := setupTestEnv(t)
 	ctx := context.Background()
 	ns := fmt.Sprintf("test-happy-%d", time.Now().UnixNano())
@@ -231,6 +256,7 @@ func TestHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+
 	if result.RequeueAfter != 5*time.Second {
 		t.Errorf("expected requeue after 5s, got %v", result.RequeueAfter)
 	}
@@ -240,6 +266,7 @@ func TestHappyPath(t *testing.T) {
 	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, &updated); err != nil {
 		t.Fatalf("get deployment: %v", err)
 	}
+
 	if _, ok := updated.Spec.Template.Annotations[AnnotationRestartedAt]; !ok {
 		t.Error("expected restartedAt annotation on pod template")
 	}
@@ -249,12 +276,15 @@ func TestHappyPath(t *testing.T) {
 	if err := te.client.Get(ctx, types.NamespacedName{Name: node.Name}, &updatedNode); err != nil {
 		t.Fatalf("get node: %v", err)
 	}
+
 	if _, ok := updatedNode.Annotations[AnnotationProcessingSince]; !ok {
 		t.Error("expected processing-since annotation on node")
 	}
 }
 
 func TestSkipNoDrainTaint(t *testing.T) {
+	t.Parallel()
+
 	te := setupTestEnv(t)
 	ctx := context.Background()
 
@@ -265,12 +295,15 @@ func TestSkipNoDrainTaint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+
 	if result.RequeueAfter != 0 {
 		t.Errorf("expected no requeue, got %v", result.RequeueAfter)
 	}
 }
 
 func TestSkipReplicasGreaterThanOne(t *testing.T) {
+	t.Parallel()
+
 	te := setupTestEnv(t)
 	ctx := context.Background()
 	ns := fmt.Sprintf("test-skip-replicas-%d", time.Now().UnixNano())
@@ -288,6 +321,7 @@ func TestSkipReplicasGreaterThanOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+
 	if result.RequeueAfter != 0 {
 		t.Errorf("expected no requeue for replicas>1, got %v", result.RequeueAfter)
 	}
@@ -297,6 +331,7 @@ func TestSkipReplicasGreaterThanOne(t *testing.T) {
 	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, &updated); err != nil {
 		t.Fatalf("get deployment: %v", err)
 	}
+
 	if updated.Spec.Template.Annotations != nil {
 		if _, ok := updated.Spec.Template.Annotations[AnnotationRestartedAt]; ok {
 			t.Error("did not expect restartedAt annotation on deployment with replicas>1")
@@ -305,6 +340,8 @@ func TestSkipReplicasGreaterThanOne(t *testing.T) {
 }
 
 func TestAnnotationFilterInclude(t *testing.T) {
+	t.Parallel()
+
 	te := setupTestEnv(t)
 	ctx := context.Background()
 	ns := fmt.Sprintf("test-annot-incl-%d", time.Now().UnixNano())
@@ -326,6 +363,7 @@ func TestAnnotationFilterInclude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+
 	if result.RequeueAfter != 5*time.Second {
 		t.Errorf("expected requeue after 5s, got %v", result.RequeueAfter)
 	}
@@ -334,12 +372,15 @@ func TestAnnotationFilterInclude(t *testing.T) {
 	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, &updated); err != nil {
 		t.Fatalf("get deployment: %v", err)
 	}
+
 	if _, ok := updated.Spec.Template.Annotations[AnnotationRestartedAt]; !ok {
 		t.Error("expected restartedAt annotation on annotated deployment")
 	}
 }
 
 func TestAnnotationFilterExclude(t *testing.T) {
+	t.Parallel()
+
 	te := setupTestEnv(t)
 	ctx := context.Background()
 	ns := fmt.Sprintf("test-annot-excl-%d", time.Now().UnixNano())
@@ -359,6 +400,7 @@ func TestAnnotationFilterExclude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+
 	if result.RequeueAfter != 0 {
 		t.Errorf("expected no requeue for non-annotated deployment, got %v", result.RequeueAfter)
 	}
@@ -367,6 +409,7 @@ func TestAnnotationFilterExclude(t *testing.T) {
 	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, &updated); err != nil {
 		t.Fatalf("get deployment: %v", err)
 	}
+
 	if updated.Spec.Template.Annotations != nil {
 		if _, ok := updated.Spec.Template.Annotations[AnnotationRestartedAt]; ok {
 			t.Error("did not expect restartedAt annotation on non-annotated deployment")
@@ -375,6 +418,8 @@ func TestAnnotationFilterExclude(t *testing.T) {
 }
 
 func TestSkipAlreadyRestarting(t *testing.T) {
+	t.Parallel()
+
 	te := setupTestEnv(t)
 	ctx := context.Background()
 	ns := fmt.Sprintf("test-already-%d", time.Now().UnixNano())
@@ -390,6 +435,7 @@ func TestSkipAlreadyRestarting(t *testing.T) {
 	deploy.Spec.Template.Annotations = map[string]string{
 		AnnotationRestartedAt: time.Now().Format(time.RFC3339),
 	}
+
 	if err := te.client.Patch(ctx, deploy, patch); err != nil {
 		t.Fatalf("patch deployment: %v", err)
 	}
@@ -402,12 +448,15 @@ func TestSkipAlreadyRestarting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+
 	if result.RequeueAfter != 0 {
 		t.Errorf("expected no requeue for already-restarting deployment, got %v", result.RequeueAfter)
 	}
 }
 
 func TestMultipleDeployments(t *testing.T) {
+	t.Parallel()
+
 	te := setupTestEnv(t)
 	ctx := context.Background()
 	ns := fmt.Sprintf("test-multi-%d", time.Now().UnixNano())
@@ -430,36 +479,40 @@ func TestMultipleDeployments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+
 	if result.RequeueAfter != 5*time.Second {
 		t.Errorf("expected requeue after 5s, got %v", result.RequeueAfter)
 	}
 
 	// Both deployments should have restartedAt.
 	for _, name := range []string{"app1", "app2"} {
-		var d appsv1.Deployment
-		if err := te.client.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, &d); err != nil {
+		var dep appsv1.Deployment
+		if err := te.client.Get(ctx, types.NamespacedName{Name: name, Namespace: ns}, &dep); err != nil {
 			t.Fatalf("get deployment %s: %v", name, err)
 		}
-		if _, ok := d.Spec.Template.Annotations[AnnotationRestartedAt]; !ok {
+
+		if _, ok := dep.Spec.Template.Annotations[AnnotationRestartedAt]; !ok {
 			t.Errorf("expected restartedAt annotation on deployment %s", name)
 		}
 	}
 }
 
 func TestTimeout(t *testing.T) {
+	t.Parallel()
+
 	te := setupTestEnv(t)
 	ctx := context.Background()
-	ns := fmt.Sprintf("test-timeout-%d", time.Now().UnixNano())
-	createNamespace(t, ctx, te.client, ns)
 
 	node := createNode(t, ctx, te.client, fmt.Sprintf("node-timeout-%d", time.Now().UnixNano()), []corev1.Taint{
 		{Key: "karpenter.sh/disrupted", Effect: corev1.TaintEffectNoSchedule},
 	})
+
 	// Set processing-since to a time in the past (beyond timeout).
 	patch := client.MergeFrom(node.DeepCopy())
 	if node.Annotations == nil {
 		node.Annotations = make(map[string]string)
 	}
+
 	node.Annotations[AnnotationProcessingSince] = time.Now().Add(-10 * time.Minute).Format(time.RFC3339)
 	if err := te.client.Patch(ctx, node, patch); err != nil {
 		t.Fatalf("patch node: %v", err)
@@ -472,12 +525,15 @@ func TestTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+
 	if result.RequeueAfter != 0 {
 		t.Errorf("expected no requeue after timeout, got %v", result.RequeueAfter)
 	}
 }
 
 func TestUnconfiguredTaint(t *testing.T) {
+	t.Parallel()
+
 	te := setupTestEnv(t)
 	ctx := context.Background()
 
@@ -490,12 +546,15 @@ func TestUnconfiguredTaint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+
 	if result.RequeueAfter != 0 {
 		t.Errorf("expected no requeue for unconfigured taint, got %v", result.RequeueAfter)
 	}
 }
 
 func TestRequeueWhileRolloutInProgress(t *testing.T) {
+	t.Parallel()
+
 	te := setupTestEnv(t)
 	ctx := context.Background()
 	ns := fmt.Sprintf("test-requeue-%d", time.Now().UnixNano())
@@ -504,11 +563,13 @@ func TestRequeueWhileRolloutInProgress(t *testing.T) {
 	node := createNode(t, ctx, te.client, fmt.Sprintf("node-requeue-%d", time.Now().UnixNano()), []corev1.Taint{
 		{Key: "karpenter.sh/disrupted", Effect: corev1.TaintEffectNoSchedule},
 	})
+
 	// Set processing-since to recent time.
 	patch := client.MergeFrom(node.DeepCopy())
 	if node.Annotations == nil {
 		node.Annotations = make(map[string]string)
 	}
+
 	node.Annotations[AnnotationProcessingSince] = time.Now().Format(time.RFC3339)
 	if err := te.client.Patch(ctx, node, patch); err != nil {
 		t.Fatalf("patch node: %v", err)
@@ -524,6 +585,7 @@ func TestRequeueWhileRolloutInProgress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
+
 	if result.RequeueAfter != 5*time.Second {
 		t.Errorf("expected requeue after 5s while rollout in progress, got %v", result.RequeueAfter)
 	}

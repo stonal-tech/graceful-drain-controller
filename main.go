@@ -18,11 +18,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-var scheme = runtime.NewScheme()
+var scheme = func() *runtime.Scheme {
+	s := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(s)
 
-func init() {
-	_ = clientgoscheme.AddToScheme(scheme)
-}
+	return s
+}()
 
 // Config holds all controller configuration.
 type Config struct {
@@ -37,17 +38,21 @@ type Config struct {
 // parseDrainTaints parses a comma-separated string of "key:effect" pairs.
 func parseDrainTaints(raw string) ([]DrainTaint, error) {
 	var taints []DrainTaint
+
 	for _, entry := range strings.Split(raw, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue
 		}
+
 		parts := strings.SplitN(entry, ":", 2)
 		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid drain taint format %q, expected key:effect", entry)
+			return nil, fmt.Errorf("%w: %q", ErrInvalidDrainTaintFormat, entry)
 		}
+
 		taints = append(taints, DrainTaint{Key: parts[0], Effect: parts[1]})
 	}
+
 	return taints, nil
 }
 
@@ -96,15 +101,16 @@ func main() {
 		Action: run,
 	}
 
-	if err := app.Run(context.Background(), os.Args); err != nil {
-		slog.Error("fatal error", "error", err)
+	ctx := context.Background()
+	if err := app.Run(ctx, os.Args); err != nil {
+		slog.ErrorContext(ctx, "fatal error", "error", err)
 		os.Exit(1)
 	}
 }
 
 func run(ctx context.Context, cmd *cli.Command) error {
 	cfg := Config{
-		Port:              int(cmd.Int("port")),
+		Port:              cmd.Int("port"),
 		LogLevel:          cmd.String("log-level"),
 		EnabledAnnotation: cmd.String("enabled-annotation"),
 		RequeueInterval:   cmd.Duration("requeue-interval"),
@@ -116,10 +122,12 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("parse drain taints: %w", err)
 	}
+
 	cfg.DrainTaints = taints
 
 	// Set up structured logging.
 	var level slog.Level
+
 	switch strings.ToLower(cfg.LogLevel) {
 	case "debug":
 		level = slog.LevelDebug
@@ -132,9 +140,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	default:
 		level = slog.LevelInfo
 	}
+
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
 
-	slog.Info("starting graceful-drain-controller",
+	slog.InfoContext(ctx, "starting graceful-drain-controller",
 		"port", cfg.Port,
 		"drainTaints", fmt.Sprintf("%+v", cfg.DrainTaints),
 		"enabledAnnotation", cfg.EnabledAnnotation,
@@ -159,6 +168,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		if !ok || pod.Spec.NodeName == "" {
 			return nil
 		}
+
 		return []string{pod.Spec.NodeName}
 	}); err != nil {
 		return fmt.Errorf("index pods by nodeName: %w", err)
@@ -173,6 +183,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		RequeueInterval:   cfg.RequeueInterval,
 		RolloutTimeout:    cfg.RolloutTimeout,
 	}
+
 	if err := reconciler.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("setup controller: %w", err)
 	}
@@ -181,10 +192,12 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		return fmt.Errorf("add healthz check: %w", err)
 	}
+
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		return fmt.Errorf("add readyz check: %w", err)
 	}
 
-	slog.Info("starting manager")
+	slog.InfoContext(ctx, "starting manager")
+
 	return mgr.Start(ctrl.SetupSignalHandler())
 }
