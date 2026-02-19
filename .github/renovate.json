@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>stonal-tech/renovate-config//unknown"
+    "github>stonal-tech/renovate-config//go-service"
   ]
 }
