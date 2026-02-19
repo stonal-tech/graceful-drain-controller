@@ -216,8 +216,10 @@ Use kubebuilder to scaffold the project. The project should be a standalone Go m
 ```
 graceful-drain-controller/
 ├── cmd/
-│   └── main.go                      # Entry point, sets up manager
+│   └── main.go                      # Entry point: urfave/cli app, koanf config loading, manager setup
 ├── internal/
+│   ├── config/
+│   │   └── config.go               # Config struct, defaults, koanf loading
 │   └── controller/
 │       ├── node_controller.go       # Main reconciler watching Nodes
 │       └── node_controller_test.go  # Unit tests with envtest
@@ -245,11 +247,43 @@ graceful-drain-controller/
 
 ### main.go
 
+- Use `urfave/cli/v3` to define the CLI app and flags
+- Use `koanf/v2` to load configuration from (in order of priority):
+  1. Default values (struct tags or hardcoded)
+  2. Config file (optional, YAML/JSON via `--config` flag)
+  3. Environment variables (prefix `GRACEFUL_DRAIN_`)
+  4. CLI flags (highest priority)
 - Create a controller-runtime `Manager`
 - Register the Node reconciler
 - Add health/ready probes on `:8081`
 - Leader election enabled (controller should run with replicas=1 or with leader election)
-- Parse configurable drain taints from flags/environment
+
+**CLI flags (via urfave/cli v3):**
+
+```
+--config             Path to config file (YAML)
+--leader-elect       Enable leader election (default: true)
+--health-probe-addr  Address for health probes (default: ":8081")
+--metrics-addr       Address for metrics endpoint (default: ":8080")
+--log-level          Log level: debug, info, warn, error (default: "info")
+--drain-taint        Drain taints to watch, repeatable (default: karpenter.sh/disrupted:NoSchedule, ToBeDeletedByClusterAutoscaler:NoSchedule, node.kubernetes.io/unschedulable:NoSchedule)
+--requeue-interval   Requeue interval while waiting for rollouts (default: 5s)
+--rollout-timeout    Max time to wait for a rollout (default: 5m)
+```
+
+**Config struct (loaded by koanf):**
+
+```go
+type Config struct {
+    LeaderElect     bool          `koanf:"leader_elect"`
+    HealthProbeAddr string        `koanf:"health_probe_addr"`
+    MetricsAddr     string        `koanf:"metrics_addr"`
+    LogLevel        string        `koanf:"log_level"`
+    DrainTaints     []DrainTaint  `koanf:"drain_taints"`
+    RequeueInterval time.Duration `koanf:"requeue_interval"`
+    RolloutTimeout  time.Duration `koanf:"rollout_timeout"`
+}
+```
 
 ### node_controller.go
 
@@ -258,9 +292,11 @@ graceful-drain-controller/
 ```go
 type NodeReconciler struct {
     client.Client
-    Scheme      *runtime.Scheme
-    Recorder    record.EventRecorder
-    DrainTaints []DrainTaint // Configurable list of taints to watch
+    Scheme          *runtime.Scheme
+    Recorder        record.EventRecorder
+    DrainTaints     []DrainTaint  // Configurable list of taints to watch
+    RequeueInterval time.Duration // From config
+    RolloutTimeout  time.Duration // From config
 }
 
 type DrainTaint struct {
@@ -273,7 +309,7 @@ type DrainTaint struct {
 - Primary: `Node` objects
 - The reconciler should use a predicate to only enqueue Nodes that have any of the configured drain taints (use an `EventFilter` on Create/Update).
 
-**Constants / Config:**
+**Constants (annotations — not configurable):**
 
 ```go
 const (
@@ -288,15 +324,16 @@ const (
 
     // Standard kubectl restart annotation
     AnnotationRestartedAt = "kubectl.kubernetes.io/restartedAt"
-
-    // Requeue interval while waiting for rollouts
-    RequeueInterval = 5 * time.Second
-
-    // Max time to wait for a rollout before giving up
-    RolloutTimeout = 5 * time.Minute
 )
+```
 
-// Default drain taints to watch for
+**Configurable values (from Config struct, loaded by koanf):**
+
+`DrainTaints`, `RequeueInterval`, and `RolloutTimeout` come from the `Config` struct (see main.go section above). The reconciler receives them at construction time.
+
+**Default drain taints (defined in config defaults):**
+
+```go
 var DefaultDrainTaints = []DrainTaint{
     {Key: "karpenter.sh/disrupted", Effect: corev1.TaintEffectNoSchedule},
     {Key: "ToBeDeletedByClusterAutoscaler", Effect: corev1.TaintEffectNoSchedule},
@@ -529,11 +566,16 @@ spec:
 ## Go Dependencies
 
 ```
-k8s.io/api
-k8s.io/apimachinery
-k8s.io/client-go
-sigs.k8s.io/controller-runtime
+github.com/urfave/cli/v3           v3.6.2   # CLI framework
+github.com/knadh/koanf/v2          v2.3.2   # Configuration management
+github.com/knadh/koanf/providers/env          # Env var provider for koanf
+github.com/knadh/koanf/providers/file         # File provider for koanf
+github.com/knadh/koanf/providers/structs      # Struct defaults provider for koanf
+github.com/knadh/koanf/parsers/yaml           # YAML parser for koanf
+k8s.io/api                         v0.35.1
+k8s.io/apimachinery                v0.35.1
+k8s.io/client-go                   v0.35.1
+sigs.k8s.io/controller-runtime     v0.23.1
 ```
 
 Target Go version: 1.23+
-Target controller-runtime: v0.19+ (compatible with Kubernetes 1.31+)
