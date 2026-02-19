@@ -62,7 +62,7 @@ This is a **cooperative dance** between the PDB, the controller, and the autosca
 │  Our controller (running in parallel):                           │
 │    │                                                             │
 │    ├─► Sees drain taint on Node X                                │
-│    ├─► Finds Pod A → Deployment D (replicas=1, opted-in)        │
+│    ├─► Finds Pod A → Deployment D (replicas=1, eligible)        │
 │    ├─► Triggers rollout restart on Deployment D                  │
 │    │     └─► K8s creates Pod B on a healthy node                │
 │    │         (maxSurge=1, maxUnavailable=0)                     │
@@ -78,9 +78,11 @@ This is a **cooperative dance** between the PDB, the controller, and the autosca
 
 ## Detailed Behavior
 
-### Opt-in mechanism
+### Filtering mechanism
 
-Only Deployments annotated with `graceful-drain.stonal.com/enabled: "true"` are handled. This avoids interfering with workloads that don't need this behavior.
+By default (no `--enabled-annotation` configured), the controller applies to **all** replica=1 Deployments on drained nodes. No annotation is required on the Deployments.
+
+If `--enabled-annotation` is set (e.g. `--enabled-annotation=graceful-drain.stonal.com/enabled`), only Deployments that carry that annotation set to `"true"` are handled. This allows teams to restrict the controller's scope to explicitly opted-in workloads.
 
 ### Configurable drain taints
 
@@ -124,7 +126,7 @@ func Reconcile(node):
             continue
         if deployment.spec.replicas != 1:
             continue
-        if deployment does not have annotation "graceful-drain.stonal.com/enabled: true":
+        if EnabledAnnotation is set AND deployment does not have that annotation set to "true":
             continue
         if deployment is already restarting (check restartedAt annotation is recent):
             continue
@@ -147,7 +149,7 @@ func Reconcile(node):
 
 ### Deployment prerequisites
 
-For this to work, each target Deployment MUST have all three of these configured:
+For this to work, each target Deployment MUST have the following configured:
 
 **1. Rolling update strategy with surge:**
 
@@ -179,13 +181,15 @@ spec:
 
 This is **mandatory**. The PDB is what blocks the autoscaler's immediate eviction and gives the controller time to trigger the rollout. Without a PDB, the autoscaler evicts the pod instantly and there is nothing the controller can do.
 
-**3. The opt-in annotation:**
+**3. (Only if `enabledAnnotation` is configured) The opt-in annotation:**
 
 ```yaml
 metadata:
   annotations:
-    graceful-drain.stonal.com/enabled: "true"
+    <your-configured-annotation-key>: "true"
 ```
+
+If no `enabledAnnotation` is configured, no annotation is needed — all replica=1 Deployments are eligible.
 
 ### Why PDB is mandatory (the race condition)
 
@@ -253,35 +257,33 @@ graceful-drain-controller/
   2. Config file (optional, YAML/JSON via `--config` flag)
   3. Environment variables (prefix `GRACEFUL_DRAIN_`)
   4. CLI flags (highest priority)
-- Create a controller-runtime `Manager`
+- Use `log/slog` (standard library) for all logging. Configure the log level from `--log-level` by setting `slog.SetDefault()` with a `slog.NewJSONHandler` at the appropriate level. All controller code should use `slog.Info()`, `slog.Warn()`, `slog.Error()`, `slog.Debug()` with structured key-value pairs.
+- Create a controller-runtime `Manager` with leader election enabled
 - Register the Node reconciler
-- Add health/ready probes on `:8081`
-- Leader election enabled (controller should run with replicas=1 or with leader election)
+- Expose a health check endpoint (`/healthz` and `/readyz`) on the configured port
 
 **CLI flags (via urfave/cli v3):**
 
 ```
---config             Path to config file (YAML)
---leader-elect       Enable leader election (default: true)
---health-probe-addr  Address for health probes (default: ":8081")
---metrics-addr       Address for metrics endpoint (default: ":8080")
---log-level          Log level: debug, info, warn, error (default: "info")
---drain-taint        Drain taints to watch, repeatable (default: karpenter.sh/disrupted:NoSchedule, ToBeDeletedByClusterAutoscaler:NoSchedule, node.kubernetes.io/unschedulable:NoSchedule)
---requeue-interval   Requeue interval while waiting for rollouts (default: 5s)
---rollout-timeout    Max time to wait for a rollout (default: 5m)
+--config               Path to config file (YAML)
+--port                 Port for health check probes (default: 8081, env: PORT)
+--log-level            Log level: debug, info, warn, error (default: "info")
+--drain-taint          Drain taints to watch, repeatable (default: karpenter.sh/disrupted:NoSchedule, ToBeDeletedByClusterAutoscaler:NoSchedule, node.kubernetes.io/unschedulable:NoSchedule)
+--enabled-annotation   Annotation key on Deployments to filter by (default: "" = apply to all)
+--requeue-interval     Requeue interval while waiting for rollouts (default: 5s)
+--rollout-timeout      Max time to wait for a rollout (default: 5m)
 ```
 
 **Config struct (loaded by koanf):**
 
 ```go
 type Config struct {
-    LeaderElect     bool          `koanf:"leader_elect"`
-    HealthProbeAddr string        `koanf:"health_probe_addr"`
-    MetricsAddr     string        `koanf:"metrics_addr"`
-    LogLevel        string        `koanf:"log_level"`
-    DrainTaints     []DrainTaint  `koanf:"drain_taints"`
-    RequeueInterval time.Duration `koanf:"requeue_interval"`
-    RolloutTimeout  time.Duration `koanf:"rollout_timeout"`
+    Port              int           `koanf:"port"`               // default: 8081
+    LogLevel          string        `koanf:"log_level"`
+    DrainTaints       []DrainTaint  `koanf:"drain_taints"`
+    EnabledAnnotation string        `koanf:"enabled_annotation"` // default: "" (apply to all replica=1 Deployments)
+    RequeueInterval   time.Duration `koanf:"requeue_interval"`
+    RolloutTimeout    time.Duration `koanf:"rollout_timeout"`
 }
 ```
 
@@ -294,9 +296,10 @@ type NodeReconciler struct {
     client.Client
     Scheme          *runtime.Scheme
     Recorder        record.EventRecorder
-    DrainTaints     []DrainTaint  // Configurable list of taints to watch
-    RequeueInterval time.Duration // From config
-    RolloutTimeout  time.Duration // From config
+    DrainTaints       []DrainTaint  // Configurable list of taints to watch
+    EnabledAnnotation string        // If non-empty, only handle Deployments with this annotation set to "true"
+    RequeueInterval   time.Duration // From config
+    RolloutTimeout    time.Duration // From config
 }
 
 type DrainTaint struct {
@@ -313,9 +316,6 @@ type DrainTaint struct {
 
 ```go
 const (
-    // Annotation on Deployments to opt in
-    AnnotationEnabled = "graceful-drain.stonal.com/enabled"
-
     // Annotation set on Nodes being processed
     AnnotationProcessing = "graceful-drain.stonal.com/processing"
 
@@ -398,15 +398,18 @@ rules:
 
 Use controller-runtime's `envtest` to:
 1. Create a Node with a drain taint
-2. Create a Deployment with replicas=1 and the opt-in annotation
+2. Create a Deployment with replicas=1 (and optionally an annotation, depending on the test)
 3. Create a Pod on that Node owned by the Deployment (via a ReplicaSet)
 4. Run the reconciler
 5. Assert that the Deployment's pod template now has the `restartedAt` annotation
 6. Assert that the Node has the `processing` annotation
 
 Test cases:
-- Happy path: single Deployment, single pod, triggers restart (test with each default taint)
-- Skip: Deployment without opt-in annotation → no restart
+- Happy path (no annotation filter): single Deployment, single pod, triggers restart (test with each default taint)
+- Happy path (with annotation filter): Deployment with matching annotation → triggers restart
+- Skip: annotation filter set, Deployment without the annotation → no restart
+- Skip: annotation filter set, Deployment with annotation set to "false" → no restart
+- No filter: all replica=1 Deployments on node get restarted regardless of annotations
 - Skip: Deployment with replicas > 1 → no restart
 - Skip: Node without any drain taint → no action
 - Skip: Node with a taint that is not in the configured list → no action
@@ -453,11 +456,16 @@ resources:
   limits:
     memory: 128Mi
 
-leaderElection:
-  enabled: true
+# Port for health check probes (/healthz, /readyz)
+port: 8081
 
 # Log level: info, debug
 logLevel: info
+
+# Annotation key on Deployments to restrict the controller's scope.
+# If empty (default), the controller applies to ALL replica=1 Deployments on drained nodes.
+# If set, only Deployments with this annotation set to "true" are handled.
+enabledAnnotation: ""
 
 # Drain taints to watch for. Each entry has a key and an optional effect.
 # If effect is omitted, the controller matches the taint key with any effect.
@@ -501,17 +509,29 @@ drainTaints:
     effect: "NoSchedule"
 ```
 
-### 3. Configure target Deployments
+### 3. (Optional) Restrict to annotated Deployments only
 
-Each singleton Deployment needs three things:
+By default, the controller applies to **all** replica=1 Deployments on drained nodes. To restrict it to only explicitly opted-in Deployments, set an annotation filter:
+
+```yaml
+# values-opt-in.yaml
+enabledAnnotation: "graceful-drain.stonal.com/enabled"
+```
+
+Then only Deployments with `graceful-drain.stonal.com/enabled: "true"` will be handled. You can use any annotation key you like.
+
+### 4. Configure target Deployments
+
+Each singleton Deployment needs a rolling update strategy with surge and a PDB. If `enabledAnnotation` is set, it also needs the matching annotation.
 
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: my-singleton-app
-  annotations:
-    graceful-drain.stonal.com/enabled: "true"   # Opt-in to the controller
+  # Only needed if enabledAnnotation is configured:
+  # annotations:
+  #   graceful-drain.stonal.com/enabled: "true"
 spec:
   replicas: 1
   strategy:
@@ -536,7 +556,7 @@ spec:
               port: 8080
 ```
 
-### 4. Create a PDB for each target Deployment (MANDATORY)
+### 5. Create a PDB for each target Deployment (MANDATORY)
 
 ```yaml
 apiVersion: policy/v1
