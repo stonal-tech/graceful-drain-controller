@@ -1,0 +1,238 @@
+version: "2"
+run:
+  concurrency: 8
+  issues-exit-code: 1
+  tests: true
+linters:
+  default: none
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - decorder
+    - depguard
+    - dogsled
+    - dupword
+    - durationcheck
+    - err113
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - forbidigo
+    - forcetypeassert
+    - funlen
+    - ginkgolinter
+    - gochecknoinits
+    - gochecksumtype
+    - gocognit
+    - goconst
+    - gocritic
+    - godot
+    - godox
+    - goheader
+    - goprintffuncname
+    - gosec
+    - gosmopolitan
+    - govet
+    - grouper
+    - importas
+    - inamedparam
+    - ineffassign
+    - interfacebloat
+    - lll
+    - loggercheck
+    - makezero
+    - mirror
+    - misspell
+    - mnd
+    - modernize
+    - musttag
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nonamedreturns
+    - nosprintfhostport
+    - paralleltest
+    - perfsprint
+    - prealloc
+    - predeclared
+    - promlinter
+    - protogetter
+    - reassign
+    - revive
+    - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
+    - staticcheck
+    - tagalign
+    - tagliatelle
+    - testableexamples
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - varnamelen
+    - wastedassign
+    - whitespace
+  settings:
+    depguard:
+      rules:
+        prevent_unmaintained_packages:
+          list-mode: lax
+          files:
+            - $all
+            - "!$test"
+          allow:
+            - $gostd
+          deny:
+            - pkg: io/ioutil
+              desc: "replaced by io and os packages since Go 1.16: https://tip.golang.org/doc/go1.16#ioutil"
+    dogsled:
+      max-blank-identifiers: 2
+    errcheck:
+      check-type-assertions: false
+      check-blank: false
+    funlen:
+      lines: 80
+      statements: 40
+    gocognit:
+      min-complexity: 30
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    gocritic:
+      enabled-tags:
+        - performance
+      settings:
+        captLocal:
+          paramsOnly: true
+        rangeValCopy:
+          sizeThreshold: 32
+          skipTestFuncs: true
+        hugeParam:
+          sizeThreshold: 128
+    gocyclo:
+      min-complexity: 15
+    godox:
+      keywords:
+        - NOTE
+        - OPTIMIZE
+        - HACK
+    govet:
+      enable:
+        - atomicalign
+        - shadow
+      enable-all: false
+      disable-all: false
+      settings:
+        printf:
+          funcs:
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
+    lll:
+      line-length: 120
+      tab-width: 1
+    misspell:
+      locale: US
+      ignore-rules:
+        - someword
+    modernize:
+      disable:
+        - newexpr
+    nakedret:
+      max-func-lines: 30
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: false
+    sloglint:
+      context: "scope"
+    revive:
+      rules:
+        - name: var-naming
+          arguments:
+            - [] # AllowList
+            - [] # DenyList
+            - - skip-package-name-collision-with-go-std: true
+    unparam:
+      check-exported: false
+    tagliatelle:
+      case:
+        overrides:
+          - pkg: service-lpdi
+            rules:
+              json: snake
+    varnamelen:
+      ignore-names:
+        - err
+      ignore-decls:
+        - c echo.Context
+        - c *gin.Context
+        - t testing.T
+        - i int
+        - T any
+    whitespace:
+      multi-if: false
+      multi-func: false
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - containedctx
+          - dupl
+          - forcetypeassert
+          - funlen
+          - gochecknoglobals
+          - gocritic
+          - lll
+          - noctx
+          - thelper
+          - varnamelen
+        path: _test\.go
+      - linters:
+          - containedctx
+          - dupl
+          - forcetypeassert
+          - funlen
+          - gochecknoglobals
+          - gocritic
+          - lll
+          - noctx
+          - thelper
+          - varnamelen
+        path: mocks
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - github.com/stonal-tech/
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
