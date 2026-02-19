@@ -180,7 +180,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	// Register the reconciler.
 	reconciler := &NodeReconciler{
 		Client:            mgr.GetClient(),
-		Recorder:          mgr.GetEventRecorderFor("graceful-drain-controller"),
+		Recorder:          mgr.GetEventRecorder("graceful-drain-controller"),
 		DrainTaints:       cfg.DrainTaints,
 		EnabledAnnotation: cfg.EnabledAnnotation,
 		RequeueInterval:   cfg.RequeueInterval,

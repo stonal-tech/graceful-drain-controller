@@ -11,7 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -39,7 +39,7 @@ type DrainTaint struct {
 // NodeReconciler reconciles Node objects that have drain taints.
 type NodeReconciler struct {
 	client.Client
-	Recorder          record.EventRecorder
+	Recorder          events.EventRecorder
 	DrainTaints       []DrainTaint
 	EnabledAnnotation string
 	RequeueInterval   time.Duration
@@ -133,7 +133,7 @@ func (r *NodeReconciler) reconcileNewDrain(ctx context.Context, node *corev1.Nod
 
 		slog.InfoContext(ctx, "triggered rollout restart",
 			"deployment", deploy.Name, "namespace", deploy.Namespace, "node", node.Name)
-		r.Recorder.Eventf(deploy, corev1.EventTypeNormal, "GracefulDrainTriggered",
+		r.Recorder.Eventf(deploy, nil, corev1.EventTypeNormal, "GracefulDrainTriggered", "RolloutRestart",
 			"Triggered rollout restart due to node %s being drained", node.Name)
 		targetedDeployments = append(targetedDeployments, deploy)
 	}
@@ -387,7 +387,7 @@ func (r *NodeReconciler) emitTimeoutEvents(ctx context.Context, node *corev1.Nod
 			continue
 		}
 
-		r.Recorder.Eventf(deploy, corev1.EventTypeWarning, "GracefulDrainTimeout",
+		r.Recorder.Eventf(deploy, nil, corev1.EventTypeWarning, "GracefulDrainTimeout", "Timeout",
 			"Rollout timeout reached for node %s, letting autoscaler force-drain", node.Name)
 	}
 }
