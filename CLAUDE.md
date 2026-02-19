@@ -35,6 +35,13 @@ This is a well-known issue in the Karpenter ecosystem specifically:
 
 But the problem is fundamentally the same for any autoscaler that taints-then-evicts.
 
+## Design Principles
+
+- **Minimal code.** This controller does one thing. Keep the codebase as small and readable as possible. Avoid abstractions, layers, and packages that don't pull their weight. A single-file controller is better than a multi-package project if it stays clear.
+- **No scaffolding.** Do not use kubebuilder or operator-sdk to scaffold the project. Write the code directly — it's a single reconciler.
+- **Standard library first.** Use `log/slog` for logging. Only pull in external dependencies when they provide real value (controller-runtime for the reconcile loop and health checks, urfave/cli for CLI flags and env var binding).
+- **No dead code.** No metrics, no unused helpers, no commented-out blocks, no "nice to have" features. Ship only what's needed.
+
 ## Solution
 
 Build a custom Kubernetes controller that **breaks the PDB deadlock** for replica=1 Deployments during node drain, regardless of which autoscaler or drain mechanism is used.
@@ -104,13 +111,17 @@ func Reconcile(node):
     if node does not have any configured drain taint:
         return (no requeue)
 
-    if node is already being processed (check annotation on node):
-        # Check progress of in-flight rollouts
-        if all targeted deployments have completed rollout:
-            annotate node as "drain-ready" (for observability)
-            return (no requeue)
-        else if processing started more than RolloutTimeout ago:
+    if node has AnnotationProcessingSince:
+        if processing started more than RolloutTimeout ago:
             log warning "rollout timeout, letting autoscaler force-drain"
+            return (no requeue)
+
+        # Re-scan: list pods still on this node, resolve their Deployments,
+        # check if any eligible Deployment still has an incomplete rollout.
+        # Pods that were already evicted are no longer on the node, so they
+        # won't appear here. If no pods remain or all their Deployments
+        # have completed rollout, we're done.
+        if no eligible pods remain OR all their Deployments have completed rollout:
             return (no requeue)
         else:
             return (requeue after 5s)
@@ -140,7 +151,6 @@ func Reconcile(node):
 
     if len(targetedDeployments) > 0:
         annotate node with:
-            "graceful-drain.stonal.com/processing": "true"
             "graceful-drain.stonal.com/processing-since": now().Format(RFC3339)
         return (requeue after 5s)
 
@@ -215,35 +225,26 @@ The autoscaler's drain timeout (e.g. Karpenter's `terminationGracePeriod`, Clust
 
 ## Project Structure
 
-Use kubebuilder to scaffold the project. The project should be a standalone Go module.
+Flat and minimal. No scaffolding, no code generation.
 
 ```
 graceful-drain-controller/
-├── cmd/
-│   └── main.go                      # Entry point: urfave/cli app, koanf config loading, manager setup
-├── internal/
-│   ├── config/
-│   │   └── config.go               # Config struct, defaults, koanf loading
-│   └── controller/
-│       ├── node_controller.go       # Main reconciler watching Nodes
-│       └── node_controller_test.go  # Unit tests with envtest
-├── Dockerfile                       # Multi-stage build
+├── main.go                          # Entry point: config, CLI, manager setup
+├── controller.go                    # NodeReconciler + helpers
+├── controller_test.go               # Unit tests with envtest
+├── Dockerfile
 ├── deploy/
-│   ├── helm/
-│   │   └── graceful-drain-controller/
-│   │       ├── Chart.yaml
-│   │       ├── values.yaml
-│   │       └── templates/
-│   │           ├── deployment.yaml
-│   │           ├── serviceaccount.yaml
-│   │           ├── clusterrole.yaml
-│   │           └── clusterrolebinding.yaml
-│   └── kustomize/                   # Alternative to Helm
-│       ├── kustomization.yaml
-│       └── manager.yaml
+│   └── helm/
+│       └── graceful-drain-controller/
+│           ├── Chart.yaml
+│           ├── values.yaml
+│           └── templates/
+│               ├── deployment.yaml
+│               ├── serviceaccount.yaml
+│               ├── clusterrole.yaml
+│               └── clusterrolebinding.yaml
 ├── go.mod
 ├── go.sum
-├── Makefile
 └── README.md
 ```
 
@@ -251,43 +252,40 @@ graceful-drain-controller/
 
 ### main.go
 
-- Use `urfave/cli/v3` to define the CLI app and flags
-- Use `koanf/v2` to load configuration from (in order of priority):
-  1. Default values (struct tags or hardcoded)
-  2. Config file (optional, YAML/JSON via `--config` flag)
-  3. Environment variables (prefix `GRACEFUL_DRAIN_`)
-  4. CLI flags (highest priority)
-- Use `log/slog` (standard library) for all logging. Configure the log level from `--log-level` by setting `slog.SetDefault()` with a `slog.NewJSONHandler` at the appropriate level. All controller code should use `slog.Info()`, `slog.Warn()`, `slog.Error()`, `slog.Debug()` with structured key-value pairs.
+- Use `urfave/cli/v3` to define the CLI app, flags, and env var bindings. Each flag uses `Sources: cli.EnvVars(...)` for env var support. No separate config library needed.
+- Use `log/slog` for all logging. Set up `slog.NewJSONHandler` at the configured level via `slog.SetDefault()`. All code uses `slog.Info()`, `slog.Warn()`, `slog.Error()`, `slog.Debug()` with structured key-value pairs.
 - Create a controller-runtime `Manager` with leader election enabled
 - Register the Node reconciler
-- Expose a health check endpoint (`/healthz` and `/readyz`) on the configured port
+- Use controller-runtime's built-in `AddHealthzCheck`/`AddReadyzCheck` for health probes on the configured port
 
-**CLI flags (via urfave/cli v3):**
+**CLI flags (via urfave/cli v3, each with env var binding):**
 
 ```
---config               Path to config file (YAML)
---port                 Port for health check probes (default: 8081, env: PORT)
---log-level            Log level: debug, info, warn, error (default: "info")
---drain-taint          Drain taints to watch, repeatable (default: karpenter.sh/disrupted:NoSchedule, ToBeDeletedByClusterAutoscaler:NoSchedule, node.kubernetes.io/unschedulable:NoSchedule)
---enabled-annotation   Annotation key on Deployments to filter by (default: "" = apply to all)
---requeue-interval     Requeue interval while waiting for rollouts (default: 5s)
---rollout-timeout      Max time to wait for a rollout (default: 5m)
+Flag                   Env Var                          Default
+--port                 PORT                             8081
+--log-level            GRACEFUL_DRAIN_LOG_LEVEL         "info"
+--drain-taint          GRACEFUL_DRAIN_DRAIN_TAINTS      "karpenter.sh/disrupted:NoSchedule,ToBeDeletedByClusterAutoscaler:NoSchedule,node.kubernetes.io/unschedulable:NoSchedule"
+--enabled-annotation   GRACEFUL_DRAIN_ENABLED_ANNOTATION ""
+--requeue-interval     GRACEFUL_DRAIN_REQUEUE_INTERVAL  5s
+--rollout-timeout      GRACEFUL_DRAIN_ROLLOUT_TIMEOUT   5m
 ```
 
-**Config struct (loaded by koanf):**
+`--drain-taint` is a comma-separated string of `key:effect` pairs. Parsed at startup into `[]DrainTaint`.
+
+**Config struct (populated from urfave/cli flag values after parsing):**
 
 ```go
 type Config struct {
-    Port              int           `koanf:"port"`               // default: 8081
-    LogLevel          string        `koanf:"log_level"`
-    DrainTaints       []DrainTaint  `koanf:"drain_taints"`
-    EnabledAnnotation string        `koanf:"enabled_annotation"` // default: "" (apply to all replica=1 Deployments)
-    RequeueInterval   time.Duration `koanf:"requeue_interval"`
-    RolloutTimeout    time.Duration `koanf:"rollout_timeout"`
+    Port              int
+    LogLevel          string
+    DrainTaints       []DrainTaint
+    EnabledAnnotation string
+    RequeueInterval   time.Duration
+    RolloutTimeout    time.Duration
 }
 ```
 
-### node_controller.go
+### controller.go
 
 **Struct:**
 
@@ -303,8 +301,8 @@ type NodeReconciler struct {
 }
 
 type DrainTaint struct {
-    Key    string
-    Effect corev1.TaintEffect // Optional: if empty, matches any effect
+    Key    string // e.g. "karpenter.sh/disrupted"
+    Effect string // e.g. "NoSchedule" — converted to corev1.TaintEffect at match time
 }
 ```
 
@@ -312,14 +310,12 @@ type DrainTaint struct {
 - Primary: `Node` objects
 - The reconciler should use a predicate to only enqueue Nodes that have any of the configured drain taints (use an `EventFilter` on Create/Update).
 
-**Constants (annotations — not configurable):**
+**Constants:**
 
 ```go
 const (
-    // Annotation set on Nodes being processed
-    AnnotationProcessing = "graceful-drain.stonal.com/processing"
-
-    // Annotation to track when processing started
+    // Annotation set on Nodes being processed (value = RFC3339 timestamp of when processing started).
+    // Existence means "processing"; the value is used for timeout checks.
     AnnotationProcessingSince = "graceful-drain.stonal.com/processing-since"
 
     // Standard kubectl restart annotation
@@ -327,17 +323,13 @@ const (
 )
 ```
 
-**Configurable values (from Config struct, loaded by koanf):**
-
-`DrainTaints`, `RequeueInterval`, and `RolloutTimeout` come from the `Config` struct (see main.go section above). The reconciler receives them at construction time.
-
 **Default drain taints (defined in config defaults):**
 
 ```go
 var DefaultDrainTaints = []DrainTaint{
-    {Key: "karpenter.sh/disrupted", Effect: corev1.TaintEffectNoSchedule},
-    {Key: "ToBeDeletedByClusterAutoscaler", Effect: corev1.TaintEffectNoSchedule},
-    {Key: "node.kubernetes.io/unschedulable", Effect: corev1.TaintEffectNoSchedule},
+    {Key: "karpenter.sh/disrupted", Effect: "NoSchedule"},
+    {Key: "ToBeDeletedByClusterAutoscaler", Effect: "NoSchedule"},
+    {Key: "node.kubernetes.io/unschedulable", Effect: "NoSchedule"},
 }
 ```
 
@@ -350,15 +342,7 @@ var DefaultDrainTaints = []DrainTaint{
 5. `isAlreadyRestarting(deployment *appsv1.Deployment, since time.Duration) bool` — checks if `restartedAt` annotation is recent (within `since` duration)
 
 **Events:**
-The controller should emit Kubernetes Events on the Deployment:
-- `Normal` / `GracefulDrainTriggered` — when a rollout restart is triggered
-- `Warning` / `GracefulDrainTimeout` — if rollout didn't complete within timeout
-- `Normal` / `GracefulDrainCompleted` — when rollout is confirmed complete
-
-**Metrics (optional but nice):**
-- `graceful_drain_rollouts_triggered_total` (counter)
-- `graceful_drain_rollouts_completed_total` (counter)
-- `graceful_drain_rollout_duration_seconds` (histogram)
+Emit Kubernetes Events on the Deployment: `Normal/GracefulDrainTriggered` when a rollout restart is triggered, `Warning/GracefulDrainTimeout` on timeout.
 
 ### RBAC Requirements
 
@@ -396,30 +380,15 @@ rules:
 
 ### Unit tests (envtest)
 
-Use controller-runtime's `envtest` to:
-1. Create a Node with a drain taint
-2. Create a Deployment with replicas=1 (and optionally an annotation, depending on the test)
-3. Create a Pod on that Node owned by the Deployment (via a ReplicaSet)
-4. Run the reconciler
-5. Assert that the Deployment's pod template now has the `restartedAt` annotation
-6. Assert that the Node has the `processing` annotation
+Use controller-runtime's `envtest` in `controller_test.go`. Each test creates a Node, Deployment, ReplicaSet, and Pod, then runs the reconciler and asserts outcomes.
 
 Test cases:
-- Happy path (no annotation filter): single Deployment, single pod, triggers restart (test with each default taint)
-- Happy path (with annotation filter): Deployment with matching annotation → triggers restart
-- Skip: annotation filter set, Deployment without the annotation → no restart
-- Skip: annotation filter set, Deployment with annotation set to "false" → no restart
-- No filter: all replica=1 Deployments on node get restarted regardless of annotations
-- Skip: Deployment with replicas > 1 → no restart
-- Skip: Node without any drain taint → no action
-- Skip: Node with a taint that is not in the configured list → no action
-- Idempotency: already-restarting Deployment → no re-trigger
+- Happy path: triggers restart on replica=1 Deployment on drained node
+- No annotation filter: all replica=1 Deployments get restarted
+- With annotation filter: only matching Deployments get restarted
+- Skip: replicas > 1, no drain taint, unconfigured taint, already restarting
 - Multiple Deployments on same node → all eligible ones get restarted
-- Timeout: processing-since is older than RolloutTimeout → stop requeueing
-
-### Integration / E2E (optional)
-
-A simple test in a Kind cluster with a fake "disruption" by manually tainting a node.
+- Timeout: processing-since older than RolloutTimeout → stop requeueing
 
 ## Dockerfile
 
@@ -431,7 +400,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o manager cmd/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o manager .
 
 FROM gcr.io/distroless/static:nonroot
 COPY --from=builder /app/manager /manager
@@ -577,7 +546,7 @@ spec:
 1. **Pod with no Deployment owner** (e.g., StatefulSet, bare pod): Skip. This controller only handles Deployments.
 2. **Deployment already being deleted**: Skip (check DeletionTimestamp).
 3. **Node removed before rollout completes**: The rollout continues normally since the new pod is on a different node. The old pod will be garbage collected. No harm done.
-4. **Controller restarts during processing**: The node still has the taint, so the controller will re-reconcile. The `isAlreadyRestarting` check prevents re-triggering. The `processing` and `processing-since` annotations help track state.
+4. **Controller restarts during processing**: The node still has the taint, so the controller will re-reconcile. The `isAlreadyRestarting` check prevents re-triggering. The `processing-since` annotation tracks state.
 5. **Rollout stuck (image pull error, crashloop, etc.)**: The timeout mechanism (RolloutTimeout = 5min) stops the controller from requeueing forever. After timeout, the autoscaler's own drain timeout will eventually force-drain the node.
 6. **Autoscaler eviction retry timing**: Autoscalers retry evictions continuously while waiting for the node to drain. As soon as the surge pod is Ready and the PDB is satisfied, the next retry will succeed. There is no manual step needed to "unblock" the autoscaler.
 7. **Multiple nodes drained simultaneously**: Each node is reconciled independently. The controller processes each node's pods separately. If two nodes have pods from the same Deployment, the `isAlreadyRestarting` check prevents double-triggering.
@@ -586,12 +555,7 @@ spec:
 ## Go Dependencies
 
 ```
-github.com/urfave/cli/v3           v3.6.2   # CLI framework
-github.com/knadh/koanf/v2          v2.3.2   # Configuration management
-github.com/knadh/koanf/providers/env          # Env var provider for koanf
-github.com/knadh/koanf/providers/file         # File provider for koanf
-github.com/knadh/koanf/providers/structs      # Struct defaults provider for koanf
-github.com/knadh/koanf/parsers/yaml           # YAML parser for koanf
+github.com/urfave/cli/v3           v3.6.2   # CLI flags + env var binding
 k8s.io/api                         v0.35.1
 k8s.io/apimachinery                v0.35.1
 k8s.io/client-go                   v0.35.1
