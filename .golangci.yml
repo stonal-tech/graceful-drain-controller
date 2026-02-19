@@ -1,0 +1,281 @@
+version: "2"
+run:
+  concurrency: 4
+  issues-exit-code: 1
+  tests: true
+linters:
+  default: none
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - cyclop
+    - decorder
+    - depguard
+    - dogsled
+    - dupword
+    - durationcheck
+    - err113
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    # - exhaustruct <-- way too much noise
+    - forbidigo
+    - forcetypeassert
+    - funlen
+    - ginkgolinter
+    - gochecknoglobals
+    - gochecknoinits
+    - gochecksumtype
+    - gocognit
+    - goconst
+    - gocritic
+    - godot
+    - godox
+    - goheader
+    - goprintffuncname
+    - gosec
+    - gosmopolitan
+    - govet
+    - grouper
+    - importas
+    - inamedparam
+    - ineffassign
+    - interfacebloat
+    # - ireturn # not convenient for factory pattern
+    - lll
+    - loggercheck
+    - makezero
+    - mirror
+    - misspell
+    - mnd
+    - musttag
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - noctx
+    - nolintlint
+    - nonamedreturns
+    - nosprintfhostport
+    - paralleltest
+    - perfsprint
+    - prealloc
+    - predeclared
+    - promlinter
+    - protogetter
+    - reassign
+    - revive
+    - rowserrcheck
+    - sloglint
+    - spancheck
+    - sqlclosecheck
+    - staticcheck
+    - tagalign
+    - tagliatelle
+    - testableexamples
+    - testifylint
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - varnamelen
+    - wastedassign
+    - whitespace
+    # - wrapcheck  # Too strict for this codebase
+    - wsl_v5
+  settings:
+    depguard:
+      rules:
+        prevent_unmaintained_packages:
+          list-mode: lax
+          files:
+            - $all
+            - "!$test"
+          allow:
+            - $gostd
+          deny:
+            - pkg: io/ioutil
+              desc: "replaced by io and os packages since Go 1.16: https://tip.golang.org/doc/go1.16#ioutil"
+    dogsled:
+      max-blank-identifiers: 2
+    errcheck:
+      check-type-assertions: false
+      check-blank: false
+    funlen:
+      lines: 120
+      statements: 70
+    gocognit:
+      min-complexity: 30
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    gocritic:
+      enabled-tags:
+        - performance
+      settings:
+        captLocal:
+          paramsOnly: true
+        rangeValCopy:
+          sizeThreshold: 32
+          skipTestFuncs: true
+    gocyclo:
+      min-complexity: 15
+    godox:
+      keywords:
+        - NOTE
+        - OPTIMIZE
+        - HACK
+    govet:
+      enable:
+        - atomicalign
+        - shadow
+      enable-all: false
+      disable-all: false
+      settings:
+        printf:
+          funcs:
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
+    lll:
+      line-length: 120
+      tab-width: 1
+    misspell:
+      locale: US
+      ignore-rules:
+        - someword
+    nakedret:
+      max-func-lines: 30
+    prealloc:
+      simple: true
+      range-loops: true
+      for-loops: false
+    sloglint:
+      context: "all"
+    unparam:
+      check-exported: false
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+    varnamelen:
+      ignore-names:
+        - err
+        - db
+        - tx
+        - ok
+        - n
+        - ip
+        - id
+      ignore-decls:
+        - c echo.Context
+        - c *gin.Context
+        - t testing.T
+        - i int
+        - j int
+        - T any
+    whitespace:
+      multi-if: false
+      multi-func: false
+    cyclop:
+      max-complexity: 20
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - wsl_v5
+          - mnd
+          - gosec
+        path: ".*"
+      - linters:
+          - revive
+        text: "package-comments"
+      - linters:
+          - revive
+        text: "avoid meaningless package names"
+      - linters:
+          - revive
+        text: "avoid package names that conflict"
+      - linters:
+          - godot
+          - godox
+          - gocritic
+          - tagalign
+          - perfsprint
+          - gci
+          - gochecknoglobals
+          - goconst
+          - lll
+          - noctx
+          - errchkjson
+          - ineffassign
+          - varnamelen
+          - wastedassign
+        path: ".*"
+      - linters:
+          - govet
+        text: "shadow"
+      - linters:
+          - mnd
+          - funlen
+          - gocognit
+          - gocritic
+          - nestif
+          - varnamelen
+          - cyclop
+        path: _test\.go
+      - path: _generated\.go$
+        linters:
+          - all
+      - linters:
+          - containedctx
+          - dupl
+          - forcetypeassert
+          - funlen
+          - gochecknoglobals
+          - gocritic
+          - lll
+          - noctx
+          - thelper
+          - varnamelen
+          - exhaustruct
+          - ireturn
+        path: mocks
+      - linters:
+          - contextcheck
+        path: main\.go
+      - linters:
+          - contextcheck
+        path: _test\.go
+      - linters:
+          - revive
+        text: "context-as-argument"
+        path: _test\.go
+formatters:
+  enable:
+    - gofmt
+    - goimports
+    - gci
+    - gofumpt
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - github.com/stonal-tech/graceful-drain-controller/
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/stonal-tech/graceful-drain-controller/)

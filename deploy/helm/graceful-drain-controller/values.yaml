@@ -1,0 +1,33 @@
+replicaCount: 1
+
+image:
+  repository: your-registry/graceful-drain-controller
+  tag: ""  # Set to a specific version, e.g. "v0.1.0"
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+# Port for health check probes (/healthz, /readyz)
+port: 8081
+
+# Log level: info, debug
+logLevel: info
+
+# Annotation key on Deployments to restrict the controller's scope.
+# If empty (default), the controller applies to ALL replica=1 Deployments on drained nodes.
+# If set, only Deployments with this annotation set to "true" are handled.
+enabledAnnotation: ""
+
+# Drain taints to watch for. Each entry has a key and an effect.
+drainTaints:
+  - key: "karpenter.sh/disrupted"
+    effect: "NoSchedule"
+  - key: "ToBeDeletedByClusterAutoscaler"
+    effect: "NoSchedule"
+  - key: "node.kubernetes.io/unschedulable"
+    effect: "NoSchedule"
