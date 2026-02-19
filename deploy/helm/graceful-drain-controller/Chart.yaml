@@ -1,0 +1,6 @@
+apiVersion: v2
+name: graceful-drain-controller
+description: Kubernetes controller for zero-downtime node drains of singleton Deployments
+version: 0.1.0
+appVersion: "0.1.0"
+type: application
