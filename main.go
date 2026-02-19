@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	cli "github.com/urfave/cli/v3"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -141,7 +142,9 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		level = slog.LevelInfo
 	}
 
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+	slog.SetDefault(slog.New(handler))
+	ctrl.SetLogger(logr.FromSlogHandler(handler))
 
 	slog.InfoContext(ctx, "starting graceful-drain-controller",
 		"port", cfg.Port,

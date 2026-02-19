@@ -13,14 +13,14 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
-  # Get ReplicaSets (to resolve ownership)
+  # Get/watch ReplicaSets (to resolve ownership)
   - apiGroups: ["apps"]
     resources: ["replicasets"]
-    verbs: ["get", "list"]
-  # Patch Deployments (trigger rollout restart)
+    verbs: ["get", "list", "watch"]
+  # Patch/watch Deployments (trigger rollout restart)
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["get", "list", "patch"]
+    verbs: ["get", "list", "watch", "patch"]
   # Emit events
   - apiGroups: [""]
     resources: ["events"]
