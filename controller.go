@@ -23,6 +23,9 @@ const (
 	// AnnotationProcessingSince is set on Nodes being processed (value = RFC3339 timestamp).
 	AnnotationProcessingSince = "graceful-drain.stonal.com/processing-since"
 
+	// AnnotationTimedOut is set on Nodes that have timed out, to prevent re-processing.
+	AnnotationTimedOut = "graceful-drain.stonal.com/timed-out"
+
 	// AnnotationRestartedAt is the standard kubectl restart annotation.
 	AnnotationRestartedAt = "kubectl.kubernetes.io/restartedAt"
 )
@@ -56,6 +59,11 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req reconcile.Request) (
 		return reconcile.Result{}, nil
 	}
 
+	// Skip nodes that already timed out — nothing more to do.
+	if node.Annotations[AnnotationTimedOut] == "true" {
+		return reconcile.Result{}, nil
+	}
+
 	// Check if we're already processing this node.
 	if sinceStr, ok := node.Annotations[AnnotationProcessingSince]; ok {
 		return r.reconcileExistingProcessing(ctx, &node, sinceStr)
@@ -77,8 +85,12 @@ func (r *NodeReconciler) reconcileExistingProcessing(
 
 	if time.Since(sinceTime) > r.RolloutTimeout {
 		slog.WarnContext(ctx, "rollout timeout reached, letting autoscaler force-drain",
-			"node", node.Name, "timeout", r.RolloutTimeout)
+			"node", node.Name, "timeout", r.RolloutTimeout.String())
 		r.emitTimeoutEvents(ctx, node)
+
+		if err := r.markNodeTimedOut(ctx, node); err != nil {
+			return reconcile.Result{}, err
+		}
 
 		return reconcile.Result{}, nil
 	}
@@ -365,6 +377,15 @@ func (r *NodeReconciler) annotateNodeProcessing(ctx context.Context, node *corev
 	}
 
 	node.Annotations[AnnotationProcessingSince] = time.Now().Format(time.RFC3339)
+
+	return r.Patch(ctx, node, patch)
+}
+
+// markNodeTimedOut removes the processing-since annotation and sets timed-out on the node.
+func (r *NodeReconciler) markNodeTimedOut(ctx context.Context, node *corev1.Node) error {
+	patch := client.MergeFrom(node.DeepCopy())
+	delete(node.Annotations, AnnotationProcessingSince)
+	node.Annotations[AnnotationTimedOut] = "true"
 
 	return r.Patch(ctx, node, patch)
 }

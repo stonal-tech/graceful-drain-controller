@@ -529,6 +529,30 @@ func TestTimeout(t *testing.T) {
 	if result.RequeueAfter != 0 {
 		t.Errorf("expected no requeue after timeout, got %v", result.RequeueAfter)
 	}
+
+	// Verify processing-since annotation was removed and timed-out was set.
+	var updatedNode corev1.Node
+	if err := te.client.Get(ctx, types.NamespacedName{Name: node.Name}, &updatedNode); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+
+	if _, ok := updatedNode.Annotations[AnnotationProcessingSince]; ok {
+		t.Error("expected processing-since annotation to be removed after timeout")
+	}
+
+	if updatedNode.Annotations[AnnotationTimedOut] != "true" {
+		t.Error("expected timed-out annotation to be set after timeout")
+	}
+
+	// A second reconcile should return immediately (no requeue, no re-processing).
+	result2, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	if err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+
+	if result2.RequeueAfter != 0 {
+		t.Errorf("expected no requeue on timed-out node, got %v", result2.RequeueAfter)
+	}
 }
 
 func TestUnconfiguredTaint(t *testing.T) {
