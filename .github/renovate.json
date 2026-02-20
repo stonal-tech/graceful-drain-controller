@@ -1,12 +1,19 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": [
+    "github>stonal-tech/renovate-config//go-service"
+  ],
   "prConcurrentLimit": 2,
   "prHourlyLimit": 1,
   "packageRules": [
     {
-      "matchUpdateTypes": ["minor", "patch"],
-      "addLabels": ["automerge"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "addLabels": [
+        "automerge"
+      ],
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash",
