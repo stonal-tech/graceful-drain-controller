@@ -144,14 +144,19 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
 	slog.SetDefault(slog.New(handler))
-	ctrl.SetLogger(logr.FromSlogHandler(handler))
+
+	// Use a separate handler for controller-runtime, capped at info level,
+	// to suppress noisy cache/reflector debug messages.
+	crLevel := max(level, slog.LevelInfo)
+	crHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: crLevel})
+	ctrl.SetLogger(logr.FromSlogHandler(crHandler))
 
 	slog.InfoContext(ctx, "starting graceful-drain-controller",
 		"port", cfg.Port,
 		"drainTaints", fmt.Sprintf("%+v", cfg.DrainTaints),
 		"enabledAnnotation", cfg.EnabledAnnotation,
-		"requeueInterval", cfg.RequeueInterval,
-		"rolloutTimeout", cfg.RolloutTimeout,
+		"requeueInterval", cfg.RequeueInterval.String(),
+		"rolloutTimeout", cfg.RolloutTimeout.String(),
 	)
 
 	// Create controller-runtime manager.
