@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/go-logr/logr v1.4.3
-	github.com/urfave/cli/v3 v3.6.2
+	github.com/urfave/cli/v3 v3.7.0
 	k8s.io/api v0.35.2
 	k8s.io/apimachinery v0.35.2
 	k8s.io/client-go v0.35.2
