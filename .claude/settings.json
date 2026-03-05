@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "stonal-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "stonal-tech/claude-code"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "coding-standards@stonal": true
+  }
+}
