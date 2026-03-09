@@ -5,24 +5,20 @@ metadata:
   labels:
     {{- include "graceful-drain-controller.labels" . | nindent 4 }}
 rules:
-  # Watch and annotate nodes
-  - apiGroups: [""]
-    resources: ["nodes"]
-    verbs: ["get", "list", "watch", "patch"]
-  # List pods
+  # Fetch pods to resolve ownership
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
-  # Get/watch ReplicaSets (to resolve ownership)
+  # Get ReplicaSets (resolve pod -> RS -> Deployment)
   - apiGroups: ["apps"]
     resources: ["replicasets"]
     verbs: ["get", "list", "watch"]
-  # Patch/watch Deployments (trigger rollout restart)
+  # Get and patch Deployments (trigger rollout restart, manage tracking annotation)
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "watch", "patch"]
   # Emit events
-  - apiGroups: [""]
+  - apiGroups: ["", "events.k8s.io"]
     resources: ["events"]
     verbs: ["create", "patch"]
   # Leader election

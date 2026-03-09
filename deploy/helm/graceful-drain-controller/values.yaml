@@ -15,19 +15,28 @@ resources:
 # Port for health check probes (/healthz, /readyz)
 port: 8081
 
+# Port for the webhook HTTPS server
+webhookPort: 9443
+
 # Log level: info, debug
 logLevel: info
 
 # Annotation key on Deployments to restrict the controller's scope.
-# If empty (default), the controller applies to ALL replica=1 Deployments on drained nodes.
+# If empty (default), all replica=1 Deployments are protected.
 # If set, only Deployments with this annotation set to "true" are handled.
 enabledAnnotation: ""
 
-# Drain taints to watch for. Each entry has a key and an effect.
-drainTaints:
-  - key: "karpenter.sh/disrupted"
-    effect: "NoSchedule"
-  - key: "ToBeDeletedByClusterAutoscaler"
-    effect: "NoSchedule"
-  - key: "node.kubernetes.io/unschedulable"
-    effect: "NoSchedule"
+# Namespace selector for the webhook. Limits which namespaces the webhook intercepts.
+# If empty, intercepts evictions in all namespaces.
+# Recommended: exclude kube-system to avoid interfering with system pods.
+namespaceSelector:
+  matchExpressions:
+  - key: kubernetes.io/metadata.name
+    operator: NotIn
+    values: ["kube-system"]
+
+# Rollout timeout. After this duration, the webhook allows eviction even if rollout is incomplete.
+rolloutTimeout: 5m
+
+# Requeue interval for the background reconciler checking rollout progress.
+requeueInterval: 5s

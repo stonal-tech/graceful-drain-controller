@@ -12,11 +12,3 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/name: graceful-drain-controller
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
-
-{{- define "graceful-drain-controller.drainTaints" -}}
-{{- $taints := list }}
-{{- range .Values.drainTaints }}
-{{- $taints = append $taints (printf "%s:%s" .key .effect) }}
-{{- end }}
-{{- join "," $taints }}
-{{- end }}

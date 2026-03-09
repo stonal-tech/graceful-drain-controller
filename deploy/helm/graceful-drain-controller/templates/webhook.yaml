@@ -1,0 +1,30 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "graceful-drain-controller.fullname" . }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "graceful-drain-controller.fullname" . }}-cert
+  labels:
+    {{- include "graceful-drain-controller.labels" . | nindent 4 }}
+webhooks:
+- name: eviction.graceful-drain.stonal.com
+  rules:
+  - apiGroups:   [""]
+    apiVersions: ["v1"]
+    operations:  ["CREATE"]
+    resources:   ["pods/eviction"]
+    scope:       "Namespaced"
+  clientConfig:
+    service:
+      namespace: {{ .Release.Namespace }}
+      name: {{ include "graceful-drain-controller.fullname" . }}
+      path: /validate-eviction
+      port: {{ .Values.webhookPort }}
+  admissionReviewVersions: ["v1"]
+  sideEffects: NoneOnDryRun
+  failurePolicy: Ignore
+  timeoutSeconds: 5
+  {{- if .Values.namespaceSelector }}
+  namespaceSelector:
+    {{- toYaml .Values.namespaceSelector | nindent 4 }}
+  {{- end }}

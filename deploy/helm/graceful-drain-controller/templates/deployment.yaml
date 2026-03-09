@@ -22,14 +22,24 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - --port={{ .Values.port }}
+            - --webhook-port={{ .Values.webhookPort }}
+            - --cert-dir=/tmp/k8s-webhook-server/serving-certs
             - --log-level={{ .Values.logLevel }}
-            - --drain-taint={{ include "graceful-drain-controller.drainTaints" . }}
             {{- if .Values.enabledAnnotation }}
             - --enabled-annotation={{ .Values.enabledAnnotation }}
+            {{- end }}
+            {{- if .Values.rolloutTimeout }}
+            - --rollout-timeout={{ .Values.rolloutTimeout }}
+            {{- end }}
+            {{- if .Values.requeueInterval }}
+            - --requeue-interval={{ .Values.requeueInterval }}
             {{- end }}
           ports:
             - name: health
               containerPort: {{ .Values.port }}
+              protocol: TCP
+            - name: webhook
+              containerPort: {{ .Values.webhookPort }}
               protocol: TCP
           livenessProbe:
             httpGet:
@@ -45,3 +55,11 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: cert
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+      volumes:
+        - name: cert
+          secret:
+            secretName: {{ include "graceful-drain-controller.fullname" . }}-cert

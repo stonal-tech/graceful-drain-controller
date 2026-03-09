@@ -1,0 +1,25 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "graceful-drain-controller.fullname" . }}-selfsign
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "graceful-drain-controller.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "graceful-drain-controller.fullname" . }}-cert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "graceful-drain-controller.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "graceful-drain-controller.fullname" . }}-cert
+  issuerRef:
+    name: {{ include "graceful-drain-controller.fullname" . }}-selfsign
+    kind: Issuer
+  dnsNames:
+  - {{ include "graceful-drain-controller.fullname" . }}.{{ .Release.Namespace }}.svc
+  - {{ include "graceful-drain-controller.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
