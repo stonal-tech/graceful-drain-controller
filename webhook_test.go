@@ -105,7 +105,7 @@ func TestWebhookAllowReplicasGreaterThanOne(t *testing.T) {
 
 	deploy := createDeployment(t, ctx, te.client, ns, "multi-app", 3, nil)
 	rs := createReplicaSet(t, ctx, te.client, deploy)
-	createPod(t, ctx, te.client, ns, "multi-app-pod", "", rs)
+	createPod(t, ctx, te.client, ns, "multi-app-pod", rs)
 
 	h := &EvictionHandler{
 		Client:         te.client,
@@ -128,7 +128,7 @@ func TestWebhookAllowDeploymentBeingDeleted(t *testing.T) {
 
 	deploy := createDeployment(t, ctx, te.client, ns, "deleting-app", 1, nil)
 	rs := createReplicaSet(t, ctx, te.client, deploy)
-	createPod(t, ctx, te.client, ns, "deleting-app-pod", "", rs)
+	createPod(t, ctx, te.client, ns, "deleting-app-pod", rs)
 
 	// Mark deployment as being deleted.
 	if err := te.client.Delete(ctx, deploy); err != nil {
@@ -156,7 +156,7 @@ func TestWebhookAllowNotMatchingAnnotation(t *testing.T) {
 
 	deploy := createDeployment(t, ctx, te.client, ns, "no-annot-app", 1, nil)
 	rs := createReplicaSet(t, ctx, te.client, deploy)
-	createPod(t, ctx, te.client, ns, "no-annot-app-pod", "", rs)
+	createPod(t, ctx, te.client, ns, "no-annot-app-pod", rs)
 
 	h := &EvictionHandler{
 		Client:            te.client,
@@ -180,7 +180,7 @@ func TestWebhookDenyAndTriggerRestart(t *testing.T) {
 
 	deploy := createDeployment(t, ctx, te.client, ns, "singleton-app", 1, nil)
 	rs := createReplicaSet(t, ctx, te.client, deploy)
-	createPod(t, ctx, te.client, ns, "singleton-app-pod", "", rs)
+	createPod(t, ctx, te.client, ns, "singleton-app-pod", rs)
 
 	h := &EvictionHandler{
 		Client:         te.client,
@@ -223,7 +223,7 @@ func TestWebhookDenyWhileRolloutInProgress(t *testing.T) {
 		AnnotationDrainRestartedAt: time.Now().Format(time.RFC3339),
 	})
 	rs := createReplicaSet(t, ctx, te.client, deploy)
-	createPod(t, ctx, te.client, ns, "rolling-app-pod", "", rs)
+	createPod(t, ctx, te.client, ns, "rolling-app-pod", rs)
 
 	h := &EvictionHandler{
 		Client:         te.client,
@@ -252,7 +252,7 @@ func TestWebhookAllowAfterTimeout(t *testing.T) {
 		AnnotationDrainRestartedAt: time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
 	})
 	rs := createReplicaSet(t, ctx, te.client, deploy)
-	createPod(t, ctx, te.client, ns, "timeout-app-pod", "", rs)
+	createPod(t, ctx, te.client, ns, "timeout-app-pod", rs)
 
 	h := &EvictionHandler{
 		Client:         te.client,
@@ -286,7 +286,7 @@ func TestWebhookAllowAfterRolloutComplete(t *testing.T) {
 	}
 
 	rs := createReplicaSet(t, ctx, te.client, deploy)
-	createPod(t, ctx, te.client, ns, "complete-app-pod", "", rs)
+	createPod(t, ctx, te.client, ns, "complete-app-pod", rs)
 
 	h := &EvictionHandler{
 		Client:         te.client,

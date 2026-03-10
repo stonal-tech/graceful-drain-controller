@@ -19,8 +19,8 @@ import (
 // and handles cleanup after rollout completes or times out.
 type DeploymentReconciler struct {
 	client.Client
-	Recorder       events.EventRecorder
-	RolloutTimeout time.Duration
+	Recorder        events.EventRecorder
+	RolloutTimeout  time.Duration
 	RequeueInterval time.Duration
 }
 

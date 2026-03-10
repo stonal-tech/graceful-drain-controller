@@ -157,7 +157,7 @@ func createReplicaSet(t *testing.T, ctx context.Context, cl client.Client, deplo
 	return replicaSet
 }
 
-func createPod(t *testing.T, ctx context.Context, cl client.Client, namespace, name, nodeName string, replicaSet *appsv1.ReplicaSet) {
+func createPod(t *testing.T, ctx context.Context, cl client.Client, namespace, name string, replicaSet *appsv1.ReplicaSet) {
 	t.Helper()
 
 	isController := true
@@ -175,7 +175,6 @@ func createPod(t *testing.T, ctx context.Context, cl client.Client, namespace, n
 			}},
 		},
 		Spec: corev1.PodSpec{
-			NodeName: nodeName,
 			Containers: []corev1.Container{{
 				Name:  "app",
 				Image: "busybox",
@@ -203,6 +202,27 @@ func createNamespace(t *testing.T, ctx context.Context, cl client.Client, name s
 	}
 }
 
+// waitForAnnotationRemoved polls until the tracking annotation is removed from the deployment.
+// This is needed because envtest uses a cached client that may return stale data briefly.
+func waitForAnnotationRemoved(t *testing.T, ctx context.Context, cl client.Client, name, namespace string) {
+	t.Helper()
+
+	for range 20 {
+		var deploy appsv1.Deployment
+		if err := cl.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &deploy); err != nil {
+			t.Fatalf("get deployment: %v", err)
+		}
+
+		if _, ok := deploy.Annotations[AnnotationDrainRestartedAt]; !ok {
+			return
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Error("expected tracking annotation to be removed")
+}
+
 // --- Reconciler Tests ---
 
 func TestReconcilerRemovesAnnotationOnComplete(t *testing.T) {
@@ -218,6 +238,12 @@ func TestReconcilerRemovesAnnotationOnComplete(t *testing.T) {
 	})
 
 	// Simulate completed rollout.
+	// Re-fetch to get the current generation set by the API server.
+	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, deploy); err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+
+	deploy.Status.ObservedGeneration = deploy.Generation
 	deploy.Status.Replicas = 1
 	deploy.Status.UpdatedReplicas = 1
 	deploy.Status.ReadyReplicas = 1
@@ -238,15 +264,7 @@ func TestReconcilerRemovesAnnotationOnComplete(t *testing.T) {
 		t.Errorf("expected no requeue, got %v", result.RequeueAfter)
 	}
 
-	// Verify tracking annotation was removed.
-	var updated appsv1.Deployment
-	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, &updated); err != nil {
-		t.Fatalf("get deployment: %v", err)
-	}
-
-	if _, ok := updated.Annotations[AnnotationDrainRestartedAt]; ok {
-		t.Error("expected tracking annotation to be removed after rollout complete")
-	}
+	waitForAnnotationRemoved(t, ctx, te.client, deploy.Name, ns)
 }
 
 func TestReconcilerRequeuesWhileInProgress(t *testing.T) {
@@ -309,15 +327,7 @@ func TestReconcilerHandlesTimeout(t *testing.T) {
 		t.Errorf("expected no requeue after timeout, got %v", result.RequeueAfter)
 	}
 
-	// Verify tracking annotation was removed.
-	var updated appsv1.Deployment
-	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, &updated); err != nil {
-		t.Fatalf("get deployment: %v", err)
-	}
-
-	if _, ok := updated.Annotations[AnnotationDrainRestartedAt]; ok {
-		t.Error("expected tracking annotation to be removed after timeout")
-	}
+	waitForAnnotationRemoved(t, ctx, te.client, deploy.Name, ns)
 }
 
 func TestReconcilerNoopWithoutAnnotation(t *testing.T) {

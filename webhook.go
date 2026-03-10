@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,11 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+)
+
+var (
+	errRolloutInProgress = errors.New("graceful drain: rollout restart in progress, retry later")
+	errRolloutTriggered  = errors.New("graceful drain: triggered rollout restart, retry later")
 )
 
 // EvictionHandler is a ValidatingAdmissionWebhook that intercepts pod evictions.
@@ -105,8 +111,7 @@ func (h *EvictionHandler) Handle(ctx context.Context, req admission.Request) adm
 		slog.InfoContext(ctx, "rollout in progress, denying eviction",
 			"deployment", deploy.Name, "namespace", deploy.Namespace)
 		return admission.Errored(http.StatusTooManyRequests,
-			fmt.Errorf("graceful drain: rollout restart in progress for deployment %s/%s, retry later",
-				deploy.Namespace, deploy.Name))
+			fmt.Errorf("%w: deployment %s/%s", errRolloutInProgress, deploy.Namespace, deploy.Name))
 	}
 
 	// No tracking annotation → trigger rollout restart.
@@ -123,6 +128,5 @@ func (h *EvictionHandler) Handle(ctx context.Context, req admission.Request) adm
 		"pod", podName)
 
 	return admission.Errored(http.StatusTooManyRequests,
-		fmt.Errorf("graceful drain: triggered rollout restart for deployment %s/%s, retry later",
-			deploy.Namespace, deploy.Name))
+		fmt.Errorf("%w: deployment %s/%s", errRolloutTriggered, deploy.Namespace, deploy.Name))
 }
