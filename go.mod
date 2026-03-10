@@ -1,13 +1,14 @@
 module github.com/stonal-tech/graceful-drain-controller
 
-go 1.25.0
+go 1.26.1
 
 require (
-	github.com/urfave/cli/v3 v3.6.2
-	k8s.io/api v0.35.1
-	k8s.io/apimachinery v0.35.1
-	k8s.io/client-go v0.35.1
-	sigs.k8s.io/controller-runtime v0.23.1
+	github.com/go-logr/logr v1.4.3
+	github.com/urfave/cli/v3 v3.7.0
+	k8s.io/api v0.35.2
+	k8s.io/apimachinery v0.35.2
+	k8s.io/client-go v0.35.2
+	sigs.k8s.io/controller-runtime v0.23.3
 )
 
 require (
@@ -18,7 +19,6 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.23.0 // indirect
