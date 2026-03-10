@@ -202,6 +202,28 @@ func createNamespace(t *testing.T, ctx context.Context, cl client.Client, name s
 	}
 }
 
+// waitForStatusSync polls until the cached client reflects the expected status.
+// This is needed because envtest uses a cached client — Status().Update() writes
+// to the API server, but subsequent Get() calls read from the cache which may lag.
+func waitForStatusSync(t *testing.T, ctx context.Context, cl client.Client, name, namespace string, readyReplicas int32) {
+	t.Helper()
+
+	for range 20 {
+		var deploy appsv1.Deployment
+		if err := cl.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &deploy); err != nil {
+			t.Fatalf("get deployment: %v", err)
+		}
+
+		if deploy.Status.ReadyReplicas == readyReplicas {
+			return
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Fatal("timed out waiting for status to sync in cache")
+}
+
 // waitForAnnotationRemoved polls until the tracking annotation is removed from the deployment.
 // This is needed because envtest uses a cached client that may return stale data briefly.
 func waitForAnnotationRemoved(t *testing.T, ctx context.Context, cl client.Client, name, namespace string) {
@@ -263,6 +285,9 @@ func TestReconcilerRemovesAnnotationOnComplete(t *testing.T) {
 	if err := te.client.Status().Update(ctx, deploy); err != nil {
 		t.Fatalf("update deployment status: %v", err)
 	}
+
+	// Wait for the cached client to reflect the status update.
+	waitForStatusSync(t, ctx, te.client, deploy.Name, ns, 1)
 
 	r := newReconciler(te)
 	result, err := r.Reconcile(ctx, reconcile.Request{
