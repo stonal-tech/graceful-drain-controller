@@ -196,7 +196,8 @@ func TestWebhookDenyAndTriggerRestart(t *testing.T) {
 		t.Errorf("expected 429 status, got %d", resp.Result.Code)
 	}
 
-	// Verify deployment got both annotations.
+	// Verify deployment got the tracking annotation (but NOT the pod template annotation —
+	// that's the reconciler's job).
 	var updated appsv1.Deployment
 	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, &updated); err != nil {
 		t.Fatalf("get deployment: %v", err)
@@ -206,8 +207,10 @@ func TestWebhookDenyAndTriggerRestart(t *testing.T) {
 		t.Error("expected tracking annotation on deployment metadata")
 	}
 
-	if _, ok := updated.Spec.Template.Annotations[AnnotationRestartedAt]; !ok {
-		t.Error("expected restartedAt annotation on pod template")
+	if updated.Spec.Template.Annotations != nil {
+		if _, ok := updated.Spec.Template.Annotations[AnnotationRestartedAt]; ok {
+			t.Error("webhook should not set pod template annotation directly")
+		}
 	}
 }
 

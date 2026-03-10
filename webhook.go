@@ -114,16 +114,14 @@ func (h *EvictionHandler) Handle(ctx context.Context, req admission.Request) adm
 			fmt.Errorf("%w: deployment %s/%s", errRolloutInProgress, deploy.Namespace, deploy.Name))
 	}
 
-	// No tracking annotation → trigger rollout restart.
-	warnIfBadStrategy(ctx, deploy)
-
-	if err := triggerRolloutRestart(ctx, h.Client, deploy); err != nil {
-		slog.ErrorContext(ctx, "failed to trigger rollout restart, allowing eviction",
+	// No tracking annotation → request rollout restart (reconciler will trigger the actual rollout).
+	if err := requestRolloutRestart(ctx, h.Client, deploy); err != nil {
+		slog.ErrorContext(ctx, "failed to request rollout restart, allowing eviction",
 			"deployment", deploy.Name, "namespace", deploy.Namespace, "error", err)
-		return admission.Allowed("failed to trigger rollout restart, allowing eviction")
+		return admission.Allowed("failed to request rollout restart, allowing eviction")
 	}
 
-	slog.InfoContext(ctx, "triggered rollout restart, denying eviction",
+	slog.InfoContext(ctx, "requested rollout restart, denying eviction",
 		"deployment", deploy.Name, "namespace", deploy.Namespace,
 		"pod", podName)
 

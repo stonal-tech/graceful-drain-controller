@@ -233,16 +233,28 @@ func TestReconcilerRemovesAnnotationOnComplete(t *testing.T) {
 	ns := fmt.Sprintf("test-complete-%d", time.Now().UnixNano())
 	createNamespace(t, ctx, te.client, ns)
 
+	now := time.Now().Format(time.RFC3339)
 	deploy := createDeployment(t, ctx, te.client, ns, "complete-app", 1, map[string]string{
-		AnnotationDrainRestartedAt: time.Now().Format(time.RFC3339),
+		AnnotationDrainRestartedAt: now,
 	})
 
-	// Simulate completed rollout.
-	// Re-fetch to get the current generation set by the API server.
+	// Set pod template annotation so the reconciler knows the restart was already triggered.
+	// This bumps the generation, so we must re-fetch and update status after.
+	specPatch := client.MergeFrom(deploy.DeepCopy())
+	if deploy.Spec.Template.Annotations == nil {
+		deploy.Spec.Template.Annotations = make(map[string]string)
+	}
+	deploy.Spec.Template.Annotations[AnnotationRestartedAt] = now
+	if err := te.client.Patch(ctx, deploy, specPatch); err != nil {
+		t.Fatalf("patch deployment: %v", err)
+	}
+
+	// Re-fetch to get the current generation after the spec patch.
 	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, deploy); err != nil {
 		t.Fatalf("get deployment: %v", err)
 	}
 
+	// Simulate completed rollout with the current generation.
 	deploy.Status.ObservedGeneration = deploy.Generation
 	deploy.Status.Replicas = 1
 	deploy.Status.UpdatedReplicas = 1
@@ -267,6 +279,46 @@ func TestReconcilerRemovesAnnotationOnComplete(t *testing.T) {
 	waitForAnnotationRemoved(t, ctx, te.client, deploy.Name, ns)
 }
 
+func TestReconcilerTriggersRolloutRestart(t *testing.T) {
+	t.Parallel()
+
+	te := setupTestEnv(t)
+	ctx := context.Background()
+	ns := fmt.Sprintf("test-trigger-%d", time.Now().UnixNano())
+	createNamespace(t, ctx, te.client, ns)
+
+	// Create deployment with only the tracking annotation (as the webhook would set it).
+	deploy := createDeployment(t, ctx, te.client, ns, "trigger-app", 1, map[string]string{
+		AnnotationDrainRestartedAt: time.Now().Format(time.RFC3339),
+	})
+
+	r := newReconciler(te)
+	result, err := r.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Name: deploy.Name, Namespace: ns},
+	})
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	if result.RequeueAfter != 5*time.Second {
+		t.Errorf("expected requeue after 5s, got %v", result.RequeueAfter)
+	}
+
+	// Verify the pod template annotation was set by the reconciler.
+	var updated appsv1.Deployment
+	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, &updated); err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+
+	if updated.Spec.Template.Annotations == nil {
+		t.Fatal("expected pod template annotations to be set")
+	}
+
+	if _, ok := updated.Spec.Template.Annotations[AnnotationRestartedAt]; !ok {
+		t.Error("expected restartedAt annotation on pod template")
+	}
+}
+
 func TestReconcilerRequeuesWhileInProgress(t *testing.T) {
 	t.Parallel()
 
@@ -275,11 +327,26 @@ func TestReconcilerRequeuesWhileInProgress(t *testing.T) {
 	ns := fmt.Sprintf("test-requeue-%d", time.Now().UnixNano())
 	createNamespace(t, ctx, te.client, ns)
 
+	now := time.Now().Format(time.RFC3339)
 	deploy := createDeployment(t, ctx, te.client, ns, "rolling-app", 1, map[string]string{
-		AnnotationDrainRestartedAt: time.Now().Format(time.RFC3339),
+		AnnotationDrainRestartedAt: now,
 	})
 
-	// Simulate incomplete rollout (ReadyReplicas=0).
+	// Set pod template annotation so the reconciler knows the restart was already triggered.
+	patch := client.MergeFrom(deploy.DeepCopy())
+	if deploy.Spec.Template.Annotations == nil {
+		deploy.Spec.Template.Annotations = make(map[string]string)
+	}
+	deploy.Spec.Template.Annotations[AnnotationRestartedAt] = now
+	if err := te.client.Patch(ctx, deploy, patch); err != nil {
+		t.Fatalf("patch deployment: %v", err)
+	}
+
+	// Re-fetch and simulate incomplete rollout (ReadyReplicas=0).
+	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, deploy); err != nil {
+		t.Fatalf("get deployment: %v", err)
+	}
+
 	deploy.Status.Replicas = 1
 	deploy.Status.UpdatedReplicas = 0
 	deploy.Status.ReadyReplicas = 0

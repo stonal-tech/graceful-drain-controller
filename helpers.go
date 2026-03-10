@@ -75,27 +75,53 @@ func isRolloutComplete(deploy *appsv1.Deployment) bool {
 		deploy.Status.UnavailableReplicas == 0
 }
 
-// triggerRolloutRestart patches the restartedAt annotation on the deployment's pod template
-// and sets the tracking annotation on the deployment metadata.
-func triggerRolloutRestart(ctx context.Context, c client.Client, deploy *appsv1.Deployment) error {
+// requestRolloutRestart sets only the tracking annotation on the deployment metadata.
+// The actual pod template annotation (which triggers the rollout) is applied by the reconciler.
+func requestRolloutRestart(ctx context.Context, c client.Client, deploy *appsv1.Deployment) error {
 	patch := client.MergeFrom(deploy.DeepCopy())
-	now := time.Now().Format(time.RFC3339)
 
-	// Set tracking annotation on deployment metadata.
 	if deploy.Annotations == nil {
 		deploy.Annotations = make(map[string]string)
 	}
 
-	deploy.Annotations[AnnotationDrainRestartedAt] = now
+	deploy.Annotations[AnnotationDrainRestartedAt] = time.Now().Format(time.RFC3339)
 
-	// Set restart annotation on pod template.
+	return c.Patch(ctx, deploy, patch)
+}
+
+// triggerRolloutRestart patches the restartedAt annotation on the deployment's pod template
+// to trigger the actual rollout. Called by the reconciler.
+func triggerRolloutRestart(ctx context.Context, c client.Client, deploy *appsv1.Deployment) error {
+	patch := client.MergeFrom(deploy.DeepCopy())
+
 	if deploy.Spec.Template.Annotations == nil {
 		deploy.Spec.Template.Annotations = make(map[string]string)
 	}
 
-	deploy.Spec.Template.Annotations[AnnotationRestartedAt] = now
+	deploy.Spec.Template.Annotations[AnnotationRestartedAt] = time.Now().Format(time.RFC3339)
 
 	return c.Patch(ctx, deploy, patch)
+}
+
+// needsRestartTrigger checks if a deployment has been marked for restart (tracking annotation)
+// but the pod template rollout hasn't been triggered yet.
+func needsRestartTrigger(deploy *appsv1.Deployment) bool {
+	trackingTime, ok := deploy.Annotations[AnnotationDrainRestartedAt]
+	if !ok {
+		return false
+	}
+
+	if deploy.Spec.Template.Annotations == nil {
+		return true
+	}
+
+	templateTime, ok := deploy.Spec.Template.Annotations[AnnotationRestartedAt]
+	if !ok {
+		return true
+	}
+
+	// RFC3339 timestamps are lexicographically sortable.
+	return trackingTime > templateTime
 }
 
 // warnIfBadStrategy logs a warning if the deployment doesn't have the recommended rolling update strategy.
