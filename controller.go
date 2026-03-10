@@ -35,22 +35,7 @@ func (r *DeploymentReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 		return reconcile.Result{}, nil
 	}
 
-	// Check if rollout is complete.
-	if isRolloutComplete(&deploy) {
-		slog.InfoContext(ctx, "rollout complete, removing tracking annotation",
-			"deployment", deploy.Name, "namespace", deploy.Namespace)
-
-		if err := r.removeTrackingAnnotation(ctx, &deploy); err != nil {
-			return reconcile.Result{}, err
-		}
-
-		r.Recorder.Eventf(&deploy, nil, corev1.EventTypeNormal, "GracefulDrainCompleted", "RolloutComplete",
-			"Graceful drain rollout completed successfully")
-
-		return reconcile.Result{}, nil
-	}
-
-	// Check if timeout exceeded.
+	// Parse tracking timestamp.
 	restartedAt, err := time.Parse(time.RFC3339, restartedAtStr)
 	if err != nil {
 		slog.WarnContext(ctx, "invalid restarted-at annotation, removing",
@@ -63,6 +48,7 @@ func (r *DeploymentReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 		return reconcile.Result{}, nil
 	}
 
+	// Check if timeout exceeded.
 	if time.Since(restartedAt) > r.RolloutTimeout {
 		slog.WarnContext(ctx, "rollout timeout reached, removing tracking annotation",
 			"deployment", deploy.Name, "namespace", deploy.Namespace)
@@ -73,6 +59,40 @@ func (r *DeploymentReconciler) Reconcile(ctx context.Context, req reconcile.Requ
 
 		r.Recorder.Eventf(&deploy, nil, corev1.EventTypeWarning, "GracefulDrainTimeout", "Timeout",
 			"Graceful drain rollout timed out after %s", r.RolloutTimeout)
+
+		return reconcile.Result{}, nil
+	}
+
+	// Trigger the actual rollout restart if not yet done.
+	if needsRestartTrigger(&deploy) {
+		warnIfBadStrategy(ctx, &deploy)
+
+		slog.InfoContext(ctx, "triggering rollout restart",
+			"deployment", deploy.Name, "namespace", deploy.Namespace)
+
+		if err := triggerRolloutRestart(ctx, r.Client, &deploy); err != nil {
+			slog.ErrorContext(ctx, "failed to trigger rollout restart",
+				"deployment", deploy.Name, "namespace", deploy.Namespace, "error", err)
+			return reconcile.Result{RequeueAfter: r.RequeueInterval}, nil
+		}
+
+		r.Recorder.Eventf(&deploy, nil, corev1.EventTypeNormal, "GracefulDrainTriggered", "RolloutRestart",
+			"Triggered rollout restart for graceful drain")
+
+		return reconcile.Result{RequeueAfter: r.RequeueInterval}, nil
+	}
+
+	// Check if rollout is complete.
+	if isRolloutComplete(&deploy) {
+		slog.InfoContext(ctx, "rollout complete, removing tracking annotation",
+			"deployment", deploy.Name, "namespace", deploy.Namespace)
+
+		if err := r.removeTrackingAnnotation(ctx, &deploy); err != nil {
+			return reconcile.Result{}, err
+		}
+
+		r.Recorder.Eventf(&deploy, nil, corev1.EventTypeNormal, "GracefulDrainCompleted", "RolloutComplete",
+			"Graceful drain rollout completed successfully")
 
 		return reconcile.Result{}, nil
 	}
