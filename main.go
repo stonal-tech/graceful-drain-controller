@@ -10,13 +10,12 @@ import (
 
 	"github.com/go-logr/logr"
 	cli "github.com/urfave/cli/v3"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
 var scheme = func() *runtime.Scheme {
@@ -29,38 +28,18 @@ var scheme = func() *runtime.Scheme {
 // Config holds all controller configuration.
 type Config struct {
 	Port              int
+	WebhookPort       int
+	CertDir           string
 	LogLevel          string
-	DrainTaints       []DrainTaint
 	EnabledAnnotation string
 	RequeueInterval   time.Duration
 	RolloutTimeout    time.Duration
 }
 
-// parseDrainTaints parses a comma-separated string of "key:effect" pairs.
-func parseDrainTaints(raw string) ([]DrainTaint, error) {
-	var taints []DrainTaint
-
-	for _, entry := range strings.Split(raw, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-
-		parts := strings.SplitN(entry, ":", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("%w: %q", ErrInvalidDrainTaintFormat, entry)
-		}
-
-		taints = append(taints, DrainTaint{Key: parts[0], Effect: parts[1]})
-	}
-
-	return taints, nil
-}
-
 func main() {
 	app := &cli.Command{
 		Name:  "graceful-drain-controller",
-		Usage: "Kubernetes controller for zero-downtime node drains of singleton Deployments",
+		Usage: "Kubernetes controller for zero-downtime eviction of singleton Deployments",
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:    "port",
@@ -68,17 +47,23 @@ func main() {
 				Usage:   "Port for health check probes",
 				Sources: cli.EnvVars("PORT"),
 			},
+			&cli.IntFlag{
+				Name:    "webhook-port",
+				Value:   9443,
+				Usage:   "Port for the webhook HTTPS server",
+				Sources: cli.EnvVars("GRACEFUL_DRAIN_WEBHOOK_PORT"),
+			},
+			&cli.StringFlag{
+				Name:    "cert-dir",
+				Value:   "",
+				Usage:   "Directory containing TLS certs for the webhook server",
+				Sources: cli.EnvVars("GRACEFUL_DRAIN_CERT_DIR"),
+			},
 			&cli.StringFlag{
 				Name:    "log-level",
 				Value:   "info",
 				Usage:   "Log level (debug, info, warn, error)",
 				Sources: cli.EnvVars("GRACEFUL_DRAIN_LOG_LEVEL"),
-			},
-			&cli.StringFlag{
-				Name:    "drain-taint",
-				Value:   "karpenter.sh/disrupted:NoSchedule,ToBeDeletedByClusterAutoscaler:NoSchedule,node.kubernetes.io/unschedulable:NoSchedule",
-				Usage:   "Comma-separated drain taints as key:effect pairs",
-				Sources: cli.EnvVars("GRACEFUL_DRAIN_DRAIN_TAINTS"),
 			},
 			&cli.StringFlag{
 				Name:    "enabled-annotation",
@@ -112,19 +97,13 @@ func main() {
 func run(ctx context.Context, cmd *cli.Command) error {
 	cfg := Config{
 		Port:              cmd.Int("port"),
+		WebhookPort:       cmd.Int("webhook-port"),
+		CertDir:           cmd.String("cert-dir"),
 		LogLevel:          cmd.String("log-level"),
 		EnabledAnnotation: cmd.String("enabled-annotation"),
 		RequeueInterval:   cmd.Duration("requeue-interval"),
 		RolloutTimeout:    cmd.Duration("rollout-timeout"),
 	}
-
-	// Parse drain taints.
-	taints, err := parseDrainTaints(cmd.String("drain-taint"))
-	if err != nil {
-		return fmt.Errorf("parse drain taints: %w", err)
-	}
-
-	cfg.DrainTaints = taints
 
 	// Set up structured logging.
 	var level slog.Level
@@ -153,43 +132,46 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	slog.InfoContext(ctx, "starting graceful-drain-controller",
 		"port", cfg.Port,
-		"drainTaints", fmt.Sprintf("%+v", cfg.DrainTaints),
+		"webhookPort", cfg.WebhookPort,
 		"enabledAnnotation", cfg.EnabledAnnotation,
 		"requeueInterval", cfg.RequeueInterval.String(),
 		"rolloutTimeout", cfg.RolloutTimeout.String(),
 	)
 
 	// Create controller-runtime manager.
+	webhookOpts := webhook.Options{
+		Port: cfg.WebhookPort,
+	}
+	if cfg.CertDir != "" {
+		webhookOpts.CertDir = cfg.CertDir
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), manager.Options{
 		Scheme:                 scheme,
 		HealthProbeBindAddress: fmt.Sprintf(":%d", cfg.Port),
 		LeaderElection:         true,
 		LeaderElectionID:       "graceful-drain-controller",
+		WebhookServer:          webhook.NewServer(webhookOpts),
 	})
 	if err != nil {
 		return fmt.Errorf("create manager: %w", err)
 	}
 
-	// Index pods by spec.nodeName for efficient listing.
-	if err := mgr.GetFieldIndexer().IndexField(ctx, &corev1.Pod{}, "spec.nodeName", func(o client.Object) []string {
-		pod, ok := o.(*corev1.Pod)
-		if !ok || pod.Spec.NodeName == "" {
-			return nil
-		}
+	// Register webhook handler.
+	mgr.GetWebhookServer().Register("/validate-eviction", &webhook.Admission{
+		Handler: &EvictionHandler{
+			Client:            mgr.GetClient(),
+			EnabledAnnotation: cfg.EnabledAnnotation,
+			RolloutTimeout:    cfg.RolloutTimeout,
+		},
+	})
 
-		return []string{pod.Spec.NodeName}
-	}); err != nil {
-		return fmt.Errorf("index pods by nodeName: %w", err)
-	}
-
-	// Register the reconciler.
-	reconciler := &NodeReconciler{
-		Client:            mgr.GetClient(),
-		Recorder:          mgr.GetEventRecorder("graceful-drain-controller"),
-		DrainTaints:       cfg.DrainTaints,
-		EnabledAnnotation: cfg.EnabledAnnotation,
-		RequeueInterval:   cfg.RequeueInterval,
-		RolloutTimeout:    cfg.RolloutTimeout,
+	// Register background reconciler.
+	reconciler := &DeploymentReconciler{
+		Client:          mgr.GetClient(),
+		Recorder:        mgr.GetEventRecorder("graceful-drain-controller"),
+		RolloutTimeout:  cfg.RolloutTimeout,
+		RequeueInterval: cfg.RequeueInterval,
 	}
 
 	if err := reconciler.SetupWithManager(mgr); err != nil {

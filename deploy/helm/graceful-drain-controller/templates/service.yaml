@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "graceful-drain-controller.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "graceful-drain-controller.labels" . | nindent 4 }}
+spec:
+  ports:
+    - port: {{ .Values.webhookPort }}
+      targetPort: webhook
+      protocol: TCP
+      name: webhook
+  selector:
+    {{- include "graceful-drain-controller.selectorLabels" . | nindent 4 }}
