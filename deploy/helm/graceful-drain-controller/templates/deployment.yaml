@@ -15,6 +15,7 @@ spec:
       labels:
         {{- include "graceful-drain-controller.selectorLabels" . | nindent 8 }}
     spec:
+      priorityClassName: system-cluster-critical
       serviceAccountName: {{ include "graceful-drain-controller.fullname" . }}
       containers:
         - name: controller
