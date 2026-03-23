@@ -56,9 +56,10 @@ func (h *EvictionHandler) Handle(ctx context.Context, req admission.Request) adm
 	// Fetch the target pod.
 	var pod corev1.Pod
 	if err := h.Get(ctx, client.ObjectKey{Name: podName, Namespace: podNamespace}, &pod); err != nil {
-		slog.WarnContext(ctx, "failed to get pod, allowing eviction",
+		slog.WarnContext(ctx, "failed to get pod, denying eviction to be safe",
 			"pod", podName, "namespace", podNamespace, "error", err)
-		return admission.Allowed("pod not found, allowing eviction")
+		return admission.Errored(http.StatusTooManyRequests,
+			fmt.Errorf("graceful drain: cache not ready, retry later: %w", err))
 	}
 
 	// Resolve owning Deployment (pod → ReplicaSet → Deployment).
