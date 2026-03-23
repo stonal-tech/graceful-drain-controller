@@ -65,6 +65,31 @@ func TestWebhookAllowDryRun(t *testing.T) {
 	}
 }
 
+func TestWebhookDenyWhenPodNotFound(t *testing.T) {
+	t.Parallel()
+
+	te := setupTestEnv(t)
+	ctx := context.Background()
+	ns := fmt.Sprintf("test-nopod-%d", time.Now().UnixNano())
+	createNamespace(t, ctx, te.client, ns)
+
+	h := &EvictionHandler{
+		Client:         te.client,
+		RolloutTimeout: 5 * time.Minute,
+	}
+
+	// Evict a pod that doesn't exist — should deny (fail-closed) so the
+	// autoscaler retries once the informer cache is synced.
+	resp := h.Handle(ctx, makeEvictionRequest(t, "nonexistent-pod", ns, false))
+	if resp.Allowed {
+		t.Error("expected eviction to be denied when pod lookup fails (fail-closed)")
+	}
+
+	if resp.Result.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429 status, got %d", resp.Result.Code)
+	}
+}
+
 func TestWebhookAllowNonDeploymentPod(t *testing.T) {
 	t.Parallel()
 
