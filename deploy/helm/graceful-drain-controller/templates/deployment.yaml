@@ -14,8 +14,6 @@ spec:
     metadata:
       labels:
         {{- include "graceful-drain-controller.selectorLabels" . | nindent 8 }}
-      annotations:
-        karpenter.sh/do-not-disrupt: "true"
     spec:
       priorityClassName: system-cluster-critical
       serviceAccountName: {{ include "graceful-drain-controller.fullname" . }}
