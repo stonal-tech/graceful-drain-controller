@@ -11,6 +11,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -56,6 +57,10 @@ func (h *EvictionHandler) Handle(ctx context.Context, req admission.Request) adm
 	// Fetch the target pod.
 	var pod corev1.Pod
 	if err := h.Get(ctx, client.ObjectKey{Name: podName, Namespace: podNamespace}, &pod); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Pod is already gone — allow eviction.
+			return admission.Allowed("pod not found, already deleted")
+		}
 		slog.WarnContext(ctx, "failed to get pod, denying eviction to be safe",
 			"pod", podName, "namespace", podNamespace, "error", err)
 		return admission.Errored(http.StatusTooManyRequests,
