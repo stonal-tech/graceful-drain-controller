@@ -36,7 +36,7 @@ namespaceSelector:
     values: ["kube-system"]
 
 # Rollout timeout. After this duration, the webhook allows eviction even if rollout is incomplete.
-rolloutTimeout: 5m
+rolloutTimeout: 10m
 
 # Requeue interval for the background reconciler checking rollout progress.
-requeueInterval: 5s
+requeueInterval: 10s

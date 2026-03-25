@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -56,6 +58,10 @@ func (h *EvictionHandler) Handle(ctx context.Context, req admission.Request) adm
 	// Fetch the target pod.
 	var pod corev1.Pod
 	if err := h.Get(ctx, client.ObjectKey{Name: podName, Namespace: podNamespace}, &pod); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Pod is already gone — allow eviction.
+			return admission.Allowed("pod not found, already deleted")
+		}
 		slog.WarnContext(ctx, "failed to get pod, denying eviction to be safe",
 			"pod", podName, "namespace", podNamespace, "error", err)
 		return admission.Errored(http.StatusTooManyRequests,
@@ -74,22 +80,36 @@ func (h *EvictionHandler) Handle(ctx context.Context, req admission.Request) adm
 		return admission.Allowed("pod has no owning deployment")
 	}
 
-	// Check eligibility.
+	if reason, ok := h.isEligible(deploy); !ok {
+		return admission.Allowed(reason)
+	}
+
+	return h.handleRolloutState(ctx, deploy, podName)
+}
+
+// isEligible checks whether a deployment should be protected from eviction.
+// Returns (reason, false) if the deployment should be skipped.
+func (h *EvictionHandler) isEligible(deploy *appsv1.Deployment) (string, bool) {
 	if deploy.Spec.Replicas == nil || *deploy.Spec.Replicas != 1 {
-		return admission.Allowed("deployment has replicas != 1")
+		return "deployment has replicas != 1", false
 	}
 
 	if h.EnabledAnnotation != "" {
 		if deploy.Annotations == nil || deploy.Annotations[h.EnabledAnnotation] != "true" {
-			return admission.Allowed("deployment does not have enabled annotation")
+			return "deployment does not have enabled annotation", false
 		}
 	}
 
 	if deploy.DeletionTimestamp != nil {
-		return admission.Allowed("deployment is being deleted")
+		return "deployment is being deleted", false
 	}
 
-	// Check rollout state.
+	return "", true
+}
+
+// handleRolloutState checks the rollout state and either allows eviction,
+// denies it, or triggers a new rollout restart.
+func (h *EvictionHandler) handleRolloutState(ctx context.Context, deploy *appsv1.Deployment, podName string) admission.Response {
 	restartedAtStr, hasTracking := deploy.Annotations[AnnotationDrainRestartedAt]
 
 	// Case: deployment already has 2+ Ready replicas → rollout done, eviction safe.
