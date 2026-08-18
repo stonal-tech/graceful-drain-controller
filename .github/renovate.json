@@ -1,7 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>stonal-tech/renovate-config//go-service"
+    "config:recommended",
+    ":semanticCommits"
+  ],
+  "timezone": "Europe/Paris",
+  "dependencyDashboard": true,
+  "postUpdateOptions": [
+    "gomodTidy",
+    "gomodUpdateImportPaths"
   ],
   "prConcurrentLimit": 2,
   "prHourlyLimit": 1,
