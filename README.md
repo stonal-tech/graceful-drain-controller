@@ -1,126 +1,153 @@
-# Graceful Drain Controller
+# graceful-drain-controller
 
-A Kubernetes controller that enables **zero-downtime node drains** for singleton (`replicas: 1`) Deployments.
+[![CI](https://github.com/stonal-tech/graceful-drain-controller/actions/workflows/ci.yml/badge.svg)](https://github.com/stonal-tech/graceful-drain-controller/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)](go.mod)
 
-## The Problem
+**Zero-disruption node drains for single-replica Kubernetes Deployments.**
 
-When a node autoscaler (Karpenter, Cluster Autoscaler, or `kubectl drain`) removes a node, it taints the node and evicts pods via the Kubernetes Eviction API. For Deployments running with `replicas: 1`, this creates a dilemma:
+📖 **[Full documentation](https://stonal-tech.github.io/graceful-drain-controller/)**
 
-- **No PDB**: The pod is evicted instantly. Downtime until the replacement starts elsewhere.
-- **PDB with `minAvailable: 1`**: The eviction is blocked. The node can never drain. The autoscaler gives up or force-drains after a timeout.
+---
 
-Neither option gives zero-downtime drains for singleton Deployments.
+## The problem
 
-## How It Works
+Cluster autoscalers remove nodes constantly. Karpenter consolidates, Cluster Autoscaler scales
+down, someone runs `kubectl drain` — and they all end the same way: taint the node, then evict
+its pods through the Eviction API.
 
-The controller breaks the PDB deadlock by cooperating with the autoscaler:
+For a Deployment running `replicas: 1`, that leaves two options, and both are bad.
 
-```
-Autoscaler taints Node X → tries to evict Pod A → PDB blocks it (retries in a loop)
+![Two bad options for a single-replica Deployment](docs/assets/img/problem.svg)
 
-Controller (in parallel):
-  → Sees drain taint on Node X
-  → Finds Pod A → Deployment D (replicas=1, eligible)
-  → Triggers rollout restart on Deployment D
-    → K8s creates Pod B on a healthy node (maxSurge=1)
-  → Pod B becomes Ready → 2 pods running temporarily
-  → PDB satisfied (2 pods, minAvailable=1 → 1 eviction OK)
-    → Autoscaler's eviction retry succeeds
-      → Pod A evicted, Node X drains
-```
+Without a PodDisruptionBudget, the pod is evicted immediately and the service is down until a
+replacement is Ready somewhere else. With a PDB of `minAvailable: 1`, the eviction is refused —
+but a single-replica Deployment can never satisfy that budget, so the refusal never lifts and
+the node never drains.
 
-The key insight: a rollout restart with `maxSurge: 1` creates a surge pod on a healthy node (the draining node is tainted `NoSchedule`). Once the new pod is Ready, the PDB allows eviction of the old one.
+The honest fix is to run two replicas. That is not always possible: leader-elected controllers,
+singleton workers, licensed software and anything holding an exclusive lock are genuinely
+single-instance.
 
-## Supported Autoscalers
+## The idea
 
-The controller watches for configurable drain taints. By default:
+The disruption exists because the old pod goes away *before* the new one arrives. So make the
+eviction wait — not forever, just long enough for a replacement to come up.
 
-| Autoscaler | Taint Key | Effect |
-|---|---|---|
-| Karpenter | `karpenter.sh/disrupted` | `NoSchedule` |
-| Cluster Autoscaler | `ToBeDeletedByClusterAutoscaler` | `NoSchedule` |
-| kubectl drain / cordon | `node.kubernetes.io/unschedulable` | `NoSchedule` |
+![What the controller does](docs/assets/img/solution.svg)
 
-Custom taints can be added via configuration.
+The controller registers a validating admission webhook on `pods/eviction`. When an eviction
+arrives for the only pod of a `replicas: 1` Deployment, it denies it with `429 Too Many
+Requests` — the same status code a PodDisruptionBudget returns, which every autoscaler already
+retries — and triggers a rollout restart. The draining node is tainted `NoSchedule`, so the
+surge pod lands on a healthy node. Once it is Ready, the next retry is allowed through.
 
-## Installation
+The replica count goes `1 → 2 → 1` and never touches zero.
+
+## How it works
+
+![Sequence of the eviction dance](docs/assets/img/sequence.svg)
+
+Nothing polls, and nothing watches nodes. The whole flow is driven by the autoscaler's own
+eviction retry loop, and all the state lives in one annotation on the Deployment — so
+restarting the controller mid-drain costs nothing.
+
+[The detailed walkthrough, including every failure mode →](https://stonal-tech.github.io/graceful-drain-controller/how-it-works/)
+
+## Quick start
+
+Requires [cert-manager](https://cert-manager.io/) (or [your own certificate](https://stonal-tech.github.io/graceful-drain-controller/installation/#bring-your-own-certificate))
+for the webhook's serving cert.
 
 ```bash
-helm install graceful-drain-controller ./deploy/helm/graceful-drain-controller -n kube-system
+git clone https://github.com/stonal-tech/graceful-drain-controller.git
+cd graceful-drain-controller
+
+helm install graceful-drain-controller \
+  ./deploy/helm/graceful-drain-controller \
+  --namespace kube-system
 ```
 
-## Configuration
+> **Note**
+> The `ghcr.io/stonal-tech/graceful-drain-controller` package is currently private. Until it is
+> made public you need an image pull secret — see the [installation guide](https://stonal-tech.github.io/graceful-drain-controller/installation/).
 
-### Controller flags
+Then drain a node and watch it work:
 
-| Flag | Env Var | Default | Description |
-|---|---|---|---|
-| `--port` | `PORT` | `8081` | Health probe port |
-| `--log-level` | `GRACEFUL_DRAIN_LOG_LEVEL` | `info` | Log level (debug, info, warn, error) |
-| `--drain-taint` | `GRACEFUL_DRAIN_DRAIN_TAINTS` | *(all 3 above)* | Comma-separated `key:effect` pairs |
-| `--enabled-annotation` | `GRACEFUL_DRAIN_ENABLED_ANNOTATION` | `""` | If set, only handle annotated Deployments |
-| `--requeue-interval` | `GRACEFUL_DRAIN_REQUEUE_INTERVAL` | `5s` | Requeue interval during rollout |
-| `--rollout-timeout` | `GRACEFUL_DRAIN_ROLLOUT_TIMEOUT` | `5m` | Max time to wait for rollout |
-
-### Scope control
-
-By default, the controller applies to **all** `replicas: 1` Deployments on drained nodes. To restrict it to opt-in workloads only:
-
-```yaml
-# values.yaml
-enabledAnnotation: "graceful-drain.stonal.com/enabled"
+```bash
+kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
 ```
 
-Then annotate your Deployments:
+`kubectl` will report `graceful drain: triggered rollout restart, retry later` and keep
+retrying — that is the controller doing its job, not a failure.
+
+## What your workloads need
 
 ```yaml
-metadata:
-  annotations:
-    graceful-drain.stonal.com/enabled: "true"
-```
-
-## Deployment Prerequisites
-
-Each target Deployment **must** have:
-
-### 1. Rolling update strategy with surge
-
-```yaml
+apiVersion: apps/v1
+kind: Deployment
 spec:
   replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1        # Create new pod before killing old one
-      maxUnavailable: 0   # Never kill old pod until new one is Ready
+      maxSurge: 1         # required — create the new pod before removing the old one
+      maxUnavailable: 0   # required — never remove the old pod first
+  template:
+    spec:
+      containers:
+        - name: app
+          readinessProbe:  # required — this is what "the new pod is up" means
+            httpGet: { path: /healthz, port: 8080 }
 ```
 
-### 2. A PodDisruptionBudget
+No annotations. **No PodDisruptionBudget** — the webhook is the blocking mechanism now, and a
+`minAvailable: 1` PDB will [override the controller's timeout escape hatch](https://stonal-tech.github.io/graceful-drain-controller/workloads/#do-not-add-a-poddisruptionbudget)
+and can leave a node undrainable.
 
-```yaml
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: my-app
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: my-app
-```
+By default every `replicas: 1` Deployment is protected. Set `enabledAnnotation` at install time
+to switch to opt-in mode.
 
-The PDB is **mandatory**. Without it, the autoscaler evicts the pod instantly before the controller can act.
+[Preparing your workloads →](https://stonal-tech.github.io/graceful-drain-controller/workloads/)
 
-### 3. A readiness probe
+## Scope
 
-The surge pod must report Ready for the PDB to count it. Ensure your Deployment has a readiness probe configured.
+| | |
+|---|---|
+| **Works with** | Karpenter, Cluster Autoscaler, `kubectl drain`, anything using the Eviction API |
+| **Protects** | Deployments with `replicas: 1` |
+| **Ignores** | StatefulSets, DaemonSets, bare pods, `replicas: 2+` |
+| **Cannot help with** | direct pod deletion (`--disable-eviction`, forced termination), or a cluster with nowhere to put the surge pod |
+| **If the controller is down** | evictions proceed normally — `failurePolicy: Ignore` means it fails open |
+
+## Documentation
+
+| | |
+|---|---|
+| [How it works](https://stonal-tech.github.io/graceful-drain-controller/how-it-works/) | The sequence, the state machine, the failure modes |
+| [Installation](https://stonal-tech.github.io/graceful-drain-controller/installation/) | Prerequisites, Helm install, verification |
+| [Preparing your workloads](https://stonal-tech.github.io/graceful-drain-controller/workloads/) | Requirements, and why not to add a PDB |
+| [Configuration reference](https://stonal-tech.github.io/graceful-drain-controller/configuration/) | Every flag, Helm value, annotation and RBAC rule |
+| [Operations](https://stonal-tech.github.io/graceful-drain-controller/operations/) | Events, logs, troubleshooting |
+| [FAQ](https://stonal-tech.github.io/graceful-drain-controller/faq/) | |
 
 ## Development
 
 ```bash
-make build   # Build binary
-make test    # Run tests (requires envtest)
-make lint    # Run golangci-lint
-make fmt     # Format code
-make clean   # Remove binary
+make build   # build the binary
+make test    # run tests (requires envtest binaries)
+make lint    # golangci-lint
+make fmt     # format
 ```
+
+Tests use controller-runtime's `envtest`, which needs a real API server binary:
+
+```bash
+go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+eval $(setup-envtest use -p env)
+make test
+```
+
+## License
+
+[Apache 2.0](LICENSE)

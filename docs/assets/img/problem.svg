@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 380" width="880" height="380" role="img" aria-label="Two bad options for a single-replica Deployment: without a PDB the pod is evicted instantly and there is downtime; with a PDB the eviction is blocked forever and the node never drains.">
+  <style>
+    .t   { font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .h1  { font-size: 17px; font-weight: 700; fill: #0f172a; }
+    .h2  { font-size: 14px; font-weight: 700; fill: #0f172a; }
+    .sub { font-size: 12px; fill: #64748b; }
+    .ax  { font-size: 11px; fill: #94a3b8; }
+    .lbl { font-size: 11px; font-weight: 600; }
+    .pill{ font-size: 12px; font-weight: 700; }
+  </style>
+  <rect x="0" y="0" width="880" height="380" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text class="t h1" x="32" y="44">A <tspan font-family="ui-monospace, SFMono-Regular, Menlo, monospace">replicas: 1</tspan> Deployment on a node that is going away</text>
+  <text class="t sub" x="32" y="64">Ready pods over time. Neither option gives you a working drain.</text>
+
+  <!-- ============ Card A : no PDB ============ -->
+  <rect x="32" y="84" width="396" height="264" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+  <text class="t h2"  x="56" y="114">Option 1 — no PodDisruptionBudget</text>
+  <text class="t sub" x="56" y="134">The eviction is accepted straight away.</text>
+
+  <!-- axes -->
+  <line x1="72" y1="264" x2="404" y2="264" stroke="#cbd5e1" stroke-width="1"/>
+  <line x1="72" y1="184" x2="72"  y2="264" stroke="#cbd5e1" stroke-width="1"/>
+  <text class="t ax" x="64" y="268" text-anchor="end">0</text>
+  <text class="t ax" x="64" y="228" text-anchor="end">1</text>
+  <text class="t ax" x="64" y="188" text-anchor="end">2</text>
+  <line x1="68" y1="224" x2="72" y2="224" stroke="#cbd5e1"/>
+  <line x1="68" y1="184" x2="72" y2="184" stroke="#cbd5e1"/>
+
+  <!-- outage band -->
+  <rect x="176" y="184" width="86" height="80" fill="#dc2626" fill-opacity="0.08"/>
+  <line x1="176" y1="176" x2="176" y2="270" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+  <!-- ready-replica step line -->
+  <path d="M72 224 H176 V264 H262 V224 H404" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M176 264 H262" fill="none" stroke="#dc2626" stroke-width="4" stroke-linecap="round"/>
+
+  <text class="t lbl" x="219" y="200" text-anchor="middle" fill="#dc2626">0 pods ready</text>
+  <text class="t ax"  x="176" y="286" text-anchor="middle">evict</text>
+  <text class="t ax"  x="262" y="286" text-anchor="middle">new pod ready</text>
+
+  <rect x="56" y="304" width="132" height="26" rx="13" fill="#fee2e2"/>
+  <circle cx="72" cy="317" r="4" fill="#dc2626"/>
+  <text class="t pill" x="84" y="321" fill="#b91c1c">Downtime</text>
+
+  <!-- ============ Card B : PDB ============ -->
+  <rect x="452" y="84" width="396" height="264" rx="10" fill="#ffffff" stroke="#e2e8f0"/>
+  <text class="t h2"  x="476" y="114">Option 2 — PDB with <tspan font-family="ui-monospace, SFMono-Regular, Menlo, monospace">minAvailable: 1</tspan></text>
+  <text class="t sub" x="476" y="134">The eviction is refused, and stays refused.</text>
+
+  <line x1="492" y1="264" x2="824" y2="264" stroke="#cbd5e1" stroke-width="1"/>
+  <line x1="492" y1="184" x2="492" y2="264" stroke="#cbd5e1" stroke-width="1"/>
+  <text class="t ax" x="484" y="268" text-anchor="end">0</text>
+  <text class="t ax" x="484" y="228" text-anchor="end">1</text>
+  <text class="t ax" x="484" y="188" text-anchor="end">2</text>
+  <line x1="488" y1="224" x2="492" y2="224" stroke="#cbd5e1"/>
+  <line x1="488" y1="184" x2="492" y2="184" stroke="#cbd5e1"/>
+
+  <rect x="596" y="184" width="228" height="80" fill="#d97706" fill-opacity="0.08"/>
+  <line x1="596" y1="176" x2="596" y2="270" stroke="#d97706" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+  <path d="M492 224 H824" fill="none" stroke="#2563eb" stroke-width="2.5"/>
+
+  <text class="t lbl" x="710" y="200" text-anchor="middle" fill="#b45309">eviction refused — 429, forever</text>
+  <text class="t ax"  x="596" y="286" text-anchor="middle">evict</text>
+  <text class="t ax"  x="824" y="286" text-anchor="end">…</text>
+
+  <rect x="476" y="304" width="176" height="26" rx="13" fill="#fef3c7"/>
+  <circle cx="492" cy="317" r="4" fill="#d97706"/>
+  <text class="t pill" x="504" y="321" fill="#b45309">Node never drains</text>
+</svg>

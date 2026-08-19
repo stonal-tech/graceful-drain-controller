@@ -1,0 +1,33 @@
+title: graceful-drain-controller
+description: Zero-disruption node drains for single-replica Kubernetes Deployments
+
+url: https://stonal-tech.github.io
+baseurl: /graceful-drain-controller
+
+# Pretty URLs: /how-it-works/ rather than /how-it-works.html
+permalink: pretty
+
+remote_theme: just-the-docs/just-the-docs@v0.10.1
+plugins:
+  - jekyll-remote-theme
+
+color_scheme: light
+search_enabled: true
+
+heading_anchors: true
+
+aux_links:
+  GitHub: https://github.com/stonal-tech/graceful-drain-controller
+aux_links_new_tab: true
+
+nav_external_links:
+  - title: View on GitHub
+    url: https://github.com/stonal-tech/graceful-drain-controller
+
+footer_content: >-
+  Apache 2.0 licensed.
+  <a href="https://github.com/stonal-tech/graceful-drain-controller">Source on GitHub</a>.
+
+exclude:
+  - Gemfile
+  - Gemfile.lock

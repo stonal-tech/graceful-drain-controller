@@ -16,6 +16,10 @@ spec:
         {{- include "graceful-drain-controller.selectorLabels" . | nindent 8 }}
     spec:
       priorityClassName: system-cluster-critical
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ include "graceful-drain-controller.fullname" . }}
       containers:
         - name: controller
@@ -63,4 +67,16 @@ spec:
       volumes:
         - name: cert
           secret:
-            secretName: {{ include "graceful-drain-controller.fullname" . }}-cert
+            secretName: {{ include "graceful-drain-controller.certSecret" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

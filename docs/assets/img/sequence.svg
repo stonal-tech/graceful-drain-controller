@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 720" width="940" height="720" role="img" aria-label="Sequence of the eviction dance between the autoscaler, the kube-apiserver, the eviction webhook, the reconciler and the Deployment.">
+  <defs>
+    <marker id="s-gray" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="s-red" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#dc2626"/>
+    </marker>
+    <marker id="s-green" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#16a34a"/>
+    </marker>
+    <marker id="s-purple" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#7c3aed"/>
+    </marker>
+  </defs>
+  <style>
+    .t    { font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; }
+    .h1   { font-size: 17px; font-weight: 700; fill: #0f172a; }
+    .sub  { font-size: 12px; fill: #64748b; }
+    .lane { font-size: 12.5px; font-weight: 700; fill: #0f172a; }
+    .lsub { font-size: 10.5px; fill: #64748b; }
+    .msg  { font-size: 12px; fill: #334155; }
+    .num  { font-size: 11px; font-weight: 700; fill: #ffffff; }
+    .note { font-size: 12px; font-weight: 600; fill: #3730a3; }
+  </style>
+  <rect x="0" y="0" width="940" height="720" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text class="t h1"  x="24" y="40">The eviction dance, step by step</text>
+  <text class="t sub" x="24" y="60">Everything below is driven by the autoscaler's own eviction retry loop. Nothing polls the node.</text>
+
+  <!-- lane headers -->
+  <rect x="55"  y="80" width="150" height="42" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text class="t lane" x="130" y="100" text-anchor="middle">Autoscaler</text>
+  <text class="t lsub" x="130" y="114" text-anchor="middle">Karpenter · CA · drain</text>
+
+  <rect x="255" y="80" width="150" height="42" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text class="t lane" x="330" y="100" text-anchor="middle">kube-apiserver</text>
+  <text class="t lsub" x="330" y="114" text-anchor="middle">pods/eviction</text>
+
+  <rect x="455" y="80" width="150" height="42" rx="8" fill="#eef2ff" stroke="#a5b4fc"/>
+  <text class="t lane" x="530" y="100" text-anchor="middle">Eviction webhook</text>
+  <text class="t lsub" x="530" y="114" text-anchor="middle">this controller</text>
+
+  <rect x="635" y="80" width="130" height="42" rx="8" fill="#eef2ff" stroke="#a5b4fc"/>
+  <text class="t lane" x="700" y="100" text-anchor="middle">Reconciler</text>
+  <text class="t lsub" x="700" y="114" text-anchor="middle">this controller</text>
+
+  <rect x="795" y="80" width="130" height="42" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+  <text class="t lane" x="860" y="100" text-anchor="middle">Deployment</text>
+  <text class="t lsub" x="860" y="114" text-anchor="middle">replicas: 1</text>
+
+  <!-- lifelines -->
+  <line x1="130" y1="122" x2="130" y2="700" stroke="#cbd5e1" stroke-dasharray="4 4"/>
+  <line x1="330" y1="122" x2="330" y2="700" stroke="#cbd5e1" stroke-dasharray="4 4"/>
+  <line x1="530" y1="122" x2="530" y2="700" stroke="#a5b4fc" stroke-dasharray="4 4"/>
+  <line x1="700" y1="122" x2="700" y2="700" stroke="#a5b4fc" stroke-dasharray="4 4"/>
+  <line x1="860" y1="122" x2="860" y2="700" stroke="#cbd5e1" stroke-dasharray="4 4"/>
+
+  <!-- 1 -->
+  <circle cx="26" cy="164" r="11" fill="#475569"/><text class="t num" x="26" y="168" text-anchor="middle">1</text>
+  <path d="M130 168 H326" stroke="#475569" stroke-width="1.8" marker-end="url(#s-gray)"/>
+  <text class="t mono" x="228" y="160" text-anchor="middle" fill="#334155">POST pods/eviction</text>
+
+  <!-- 2 -->
+  <circle cx="26" cy="208" r="11" fill="#475569"/><text class="t num" x="26" y="212" text-anchor="middle">2</text>
+  <path d="M330 212 H526" stroke="#475569" stroke-width="1.8" marker-end="url(#s-gray)"/>
+  <text class="t msg" x="428" y="204" text-anchor="middle">AdmissionReview</text>
+
+  <!-- 3 -->
+  <circle cx="26" cy="252" r="11" fill="#7c3aed"/><text class="t num" x="26" y="256" text-anchor="middle">3</text>
+  <path d="M530 256 H856" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#s-purple)"/>
+  <text class="t mono" x="693" y="248" text-anchor="middle" fill="#6d28d9">annotate restarted-at</text>
+
+  <!-- 4 -->
+  <circle cx="26" cy="296" r="11" fill="#dc2626"/><text class="t num" x="26" y="300" text-anchor="middle">4</text>
+  <path d="M530 300 H334" stroke="#dc2626" stroke-width="1.8" marker-end="url(#s-red)"/>
+  <text class="t msg" x="432" y="292" text-anchor="middle" fill="#b91c1c">429 — eviction denied</text>
+
+  <!-- 5 -->
+  <circle cx="26" cy="340" r="11" fill="#dc2626"/><text class="t num" x="26" y="344" text-anchor="middle">5</text>
+  <path d="M330 344 H134" stroke="#dc2626" stroke-width="1.8" marker-end="url(#s-red)"/>
+  <text class="t msg" x="232" y="336" text-anchor="middle" fill="#b91c1c">429 — autoscaler retries in a loop</text>
+
+  <!-- 6 -->
+  <circle cx="26" cy="386" r="11" fill="#475569"/><text class="t num" x="26" y="390" text-anchor="middle">6</text>
+  <path d="M856 390 H704" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#s-gray)"/>
+  <text class="t msg" x="780" y="382" text-anchor="middle">watch event</text>
+
+  <!-- 7 -->
+  <circle cx="26" cy="430" r="11" fill="#7c3aed"/><text class="t num" x="26" y="434" text-anchor="middle">7</text>
+  <path d="M700 434 H856" stroke="#7c3aed" stroke-width="1.8" marker-end="url(#s-purple)"/>
+  <text class="t mono" x="778" y="426" text-anchor="middle" fill="#6d28d9">patch pod template</text>
+
+  <!-- note -->
+  <rect x="150" y="456" width="700" height="46" rx="8" fill="#eef2ff" stroke="#c7d2fe"/>
+  <text class="t note" x="500" y="475" text-anchor="middle">Rollout starts. maxSurge: 1 puts the new pod on a healthy node — node-a is NoSchedule.</text>
+  <text class="t note" x="500" y="492" text-anchor="middle">The new pod passes its readiness probe. The Deployment now reports 2 Ready replicas.</text>
+
+  <!-- 8 -->
+  <circle cx="26" cy="536" r="11" fill="#475569"/><text class="t num" x="26" y="540" text-anchor="middle">8</text>
+  <path d="M130 540 H326" stroke="#475569" stroke-width="1.8" marker-end="url(#s-gray)"/>
+  <text class="t mono" x="228" y="532" text-anchor="middle" fill="#334155">POST pods/eviction (retry)</text>
+
+  <!-- 9 -->
+  <circle cx="26" cy="580" r="11" fill="#475569"/><text class="t num" x="26" y="584" text-anchor="middle">9</text>
+  <path d="M330 584 H526" stroke="#475569" stroke-width="1.8" marker-end="url(#s-gray)"/>
+  <text class="t msg" x="428" y="576" text-anchor="middle">AdmissionReview</text>
+
+  <!-- 10 -->
+  <circle cx="26" cy="624" r="11" fill="#16a34a"/><text class="t num" x="26" y="628" text-anchor="middle">10</text>
+  <path d="M530 628 H334" stroke="#16a34a" stroke-width="1.8" marker-end="url(#s-green)"/>
+  <text class="t msg" x="432" y="620" text-anchor="middle" fill="#15803d">Allowed — ReadyReplicas is 2</text>
+
+  <!-- 11 -->
+  <circle cx="26" cy="668" r="11" fill="#16a34a"/><text class="t num" x="26" y="672" text-anchor="middle">11</text>
+  <path d="M330 672 H134" stroke="#16a34a" stroke-width="1.8" marker-end="url(#s-green)"/>
+  <text class="t msg" x="232" y="664" text-anchor="middle" fill="#15803d">old pod evicted — node drains</text>
+  <path d="M700 672 H856" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#s-purple)"/>
+  <text class="t msg" x="778" y="664" text-anchor="middle" fill="#6d28d9">clear annotation</text>
+</svg>

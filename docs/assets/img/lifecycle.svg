@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 420" width="900" height="420" role="img" aria-label="Deployment state machine: idle, restart requested, rolling out, complete, with a timeout escape hatch.">
+  <defs>
+    <marker id="l-ar" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="l-am" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#d97706"/>
+    </marker>
+  </defs>
+  <style>
+    .t    { font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; }
+    .h1   { font-size: 17px; font-weight: 700; fill: #0f172a; }
+    .sub  { font-size: 12px; fill: #64748b; }
+    .st   { font-size: 13.5px; font-weight: 700; fill: #0f172a; }
+    .stx  { font-size: 10.5px; fill: #64748b; }
+    .edge { font-size: 11px; fill: #475569; font-weight: 600; }
+    .badg { font-size: 10px; font-weight: 700; }
+  </style>
+  <rect x="0" y="0" width="900" height="420" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text class="t h1"  x="30" y="40">Deployment state, as seen by the controller</text>
+  <text class="t sub" x="30" y="60">The state lives entirely in one annotation on the Deployment. Nothing is held in controller memory.</text>
+
+  <!-- return edge -->
+  <path d="M775 128 V96 H115 V124" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#l-ar)"/>
+  <text class="t edge" x="445" y="90" text-anchor="middle" fill="#64748b">next drain</text>
+
+  <!-- states -->
+  <rect x="30"  y="128" width="170" height="84" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text class="t st"  x="115" y="158" text-anchor="middle">Idle</text>
+  <text class="t stx" x="115" y="176" text-anchor="middle">no tracking annotation</text>
+  <rect x="63" y="186" width="104" height="18" rx="9" fill="#dcfce7"/>
+  <text class="t badg" x="115" y="199" text-anchor="middle" fill="#166534">evictions allowed</text>
+
+  <rect x="250" y="128" width="170" height="84" rx="10" fill="#ffffff" stroke="#a5b4fc"/>
+  <text class="t st"  x="335" y="158" text-anchor="middle">Restart requested</text>
+  <text class="t stx" x="335" y="176" text-anchor="middle">annotation set by webhook</text>
+  <rect x="283" y="186" width="104" height="18" rx="9" fill="#fee2e2"/>
+  <text class="t badg" x="335" y="199" text-anchor="middle" fill="#b91c1c">evictions denied</text>
+
+  <rect x="470" y="128" width="170" height="84" rx="10" fill="#ffffff" stroke="#a5b4fc"/>
+  <text class="t st"  x="555" y="158" text-anchor="middle">Rolling out</text>
+  <text class="t stx" x="555" y="176" text-anchor="middle">surge pod starting up</text>
+  <rect x="503" y="186" width="104" height="18" rx="9" fill="#fee2e2"/>
+  <text class="t badg" x="555" y="199" text-anchor="middle" fill="#b91c1c">evictions denied</text>
+
+  <rect x="690" y="128" width="170" height="84" rx="10" fill="#ffffff" stroke="#86efac"/>
+  <text class="t st"  x="775" y="158" text-anchor="middle">Drained</text>
+  <text class="t stx" x="775" y="176" text-anchor="middle">annotation removed</text>
+  <rect x="723" y="186" width="104" height="18" rx="9" fill="#dcfce7"/>
+  <text class="t badg" x="775" y="199" text-anchor="middle" fill="#166534">evictions allowed</text>
+
+  <!-- edges -->
+  <path d="M200 170 H246" stroke="#475569" stroke-width="1.8" marker-end="url(#l-ar)"/>
+  <path d="M420 170 H466" stroke="#475569" stroke-width="1.8" marker-end="url(#l-ar)"/>
+  <path d="M640 170 H686" stroke="#475569" stroke-width="1.8" marker-end="url(#l-ar)"/>
+
+  <text class="t edge" x="223" y="240" text-anchor="middle">eviction</text>
+  <text class="t edge" x="223" y="254" text-anchor="middle">arrives</text>
+  <text class="t edge" x="443" y="240" text-anchor="middle">pod template</text>
+  <text class="t edge" x="443" y="254" text-anchor="middle">patched</text>
+  <text class="t edge" x="665" y="246" text-anchor="middle">2 Ready</text>
+
+  <!-- timeout branch -->
+  <path d="M520 212 V330 H806 V216" fill="none" stroke="#d97706" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#l-am)"/>
+  <rect x="238" y="310" width="252" height="40" rx="8" fill="#fef3c7" stroke="#fcd34d"/>
+  <text class="t edge" x="364" y="328" text-anchor="middle" fill="#92400e">escape hatch: rolloutTimeout</text>
+  <text class="t mono" x="364" y="343" text-anchor="middle" fill="#92400e">annotation cleared, eviction allowed</text>
+
+  <text class="t sub" x="30" y="372">The annotation is <tspan class="mono" fill="#0f172a">graceful-drain.stonal.com/restarted-at</tspan>, an RFC 3339 timestamp on the Deployment metadata.</text>
+  <text class="t sub" x="30" y="392">Restarting the controller loses nothing — the next eviction attempt reads the same annotation back.</text>
+</svg>
