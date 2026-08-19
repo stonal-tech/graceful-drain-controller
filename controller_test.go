@@ -245,6 +245,28 @@ func waitForAnnotationRemoved(t *testing.T, ctx context.Context, cl client.Clien
 	t.Error("expected tracking annotation to be removed")
 }
 
+// waitForPodTemplateAnnotation polls until the cached client reflects the restart
+// annotation the reconciler patched onto the pod template. Needed because envtest
+// uses a cached client that may return stale data briefly.
+func waitForPodTemplateAnnotation(t *testing.T, ctx context.Context, cl client.Client, name, namespace, key string) {
+	t.Helper()
+
+	for range 20 {
+		var deploy appsv1.Deployment
+		if err := cl.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &deploy); err != nil {
+			t.Fatalf("get deployment: %v", err)
+		}
+
+		if _, ok := deploy.Spec.Template.Annotations[key]; ok {
+			return
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Errorf("timed out waiting for pod template annotation %s", key)
+}
+
 // --- Reconciler Tests ---
 
 func TestReconcilerRemovesAnnotationOnComplete(t *testing.T) {
@@ -330,18 +352,7 @@ func TestReconcilerTriggersRolloutRestart(t *testing.T) {
 	}
 
 	// Verify the pod template annotation was set by the reconciler.
-	var updated appsv1.Deployment
-	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, &updated); err != nil {
-		t.Fatalf("get deployment: %v", err)
-	}
-
-	if updated.Spec.Template.Annotations == nil {
-		t.Fatal("expected pod template annotations to be set")
-	}
-
-	if _, ok := updated.Spec.Template.Annotations[AnnotationRestartedAt]; !ok {
-		t.Error("expected restartedAt annotation on pod template")
-	}
+	waitForPodTemplateAnnotation(t, ctx, te.client, deploy.Name, ns, AnnotationRestartedAt)
 }
 
 func TestReconcilerRequeuesWhileInProgress(t *testing.T) {
