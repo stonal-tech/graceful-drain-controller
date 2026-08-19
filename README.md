@@ -1,7 +1,7 @@
 # graceful-drain-controller
 
 [![CI](https://github.com/stonal-tech/graceful-drain-controller/actions/workflows/ci.yml/badge.svg)](https://github.com/stonal-tech/graceful-drain-controller/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)](go.mod)
 
 **Zero-disruption node drains for single-replica Kubernetes Deployments.**
@@ -150,4 +150,4 @@ make test
 
 ## License
 
-[Apache 2.0](LICENSE)
+[MIT](LICENSE)
