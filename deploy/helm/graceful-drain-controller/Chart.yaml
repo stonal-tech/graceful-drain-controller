@@ -1,6 +1,19 @@
 apiVersion: v2
 name: graceful-drain-controller
-description: Kubernetes controller for zero-downtime node drains of singleton Deployments
-version: 0.1.0
-appVersion: "0.1.0"
+description: Zero-disruption node drains for single-replica Kubernetes Deployments
 type: application
+version: 0.2.0
+appVersion: "0.8.0"
+home: https://stonal-tech.github.io/graceful-drain-controller/
+sources:
+  - https://github.com/stonal-tech/graceful-drain-controller
+keywords:
+  - karpenter
+  - cluster-autoscaler
+  - eviction
+  - poddisruptionbudget
+  - node-drain
+  - zero-downtime
+maintainers:
+  - name: Stonal
+    url: https://github.com/stonal-tech

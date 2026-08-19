@@ -1,0 +1,9 @@
+# Only used for previewing the site locally:
+#
+#   cd docs && bundle install && bundle exec jekyll serve
+#
+# GitHub Pages builds the site with its own pinned toolchain and ignores this file.
+source "https://rubygems.org"
+
+gem "github-pages", group: :jekyll_plugins
+gem "jekyll-remote-theme"

@@ -1,9 +1,18 @@
+# Number of controller replicas.
+# The webhook sits in the eviction request path, so a second replica removes the
+# short window during an upgrade where evictions bypass the controller
+# (failurePolicy is Ignore). Leader election means only one replica reconciles.
 replicaCount: 1
 
 image:
-  repository: your-registry/graceful-drain-controller
-  tag: ""  # Set to a specific version, e.g. "v0.1.0"
+  repository: ghcr.io/stonal-tech/graceful-drain-controller
+  # Defaults to the chart's appVersion.
+  tag: ""
   pullPolicy: IfNotPresent
+
+# Pull secrets for the controller image. Required while the GHCR package is private.
+imagePullSecrets: []
+# - name: ghcr-credentials
 
 resources:
   requests:
@@ -12,31 +21,62 @@ resources:
   limits:
     memory: 256Mi
 
-# Port for health check probes (/healthz, /readyz)
+# Port for health check probes (/healthz, /readyz).
 port: 8081
 
-# Port for the webhook HTTPS server
+# Port for the webhook HTTPS server.
 webhookPort: 9443
 
-# Log level: info, debug
+# Log level: debug, info, warn, error.
 logLevel: info
 
 # Annotation key on Deployments to restrict the controller's scope.
-# If empty (default), all replica=1 Deployments are protected.
-# If set, only Deployments with this annotation set to "true" are handled.
+# If empty (default), every replicas: 1 Deployment is protected.
+# If set, only Deployments carrying this annotation set to "true" are handled.
 enabledAnnotation: ""
 
-# Namespace selector for the webhook. Limits which namespaces the webhook intercepts.
-# If empty, intercepts evictions in all namespaces.
-# Recommended: exclude kube-system to avoid interfering with system pods.
-namespaceSelector:
-  matchExpressions:
-  - key: kubernetes.io/metadata.name
-    operator: NotIn
-    values: ["kube-system"]
-
-# Rollout timeout. After this duration, the webhook allows eviction even if rollout is incomplete.
+# How long the webhook keeps denying evictions before it gives up and lets the
+# node drain. This is the escape hatch for a rollout that never completes
+# (bad image, crashloop). Keep it below your autoscaler's own drain timeout.
 rolloutTimeout: 10m
 
-# Requeue interval for the background reconciler checking rollout progress.
+# How often the reconciler re-checks a rollout in progress.
 requeueInterval: 10s
+
+webhook:
+  # Ignore: if the controller is unreachable, evictions proceed as if it were not
+  # installed. This is the safe default — a broken controller cannot wedge your
+  # cluster. Fail means an unreachable controller blocks every eviction.
+  failurePolicy: Ignore
+
+  # The API server gives up on the webhook after this many seconds.
+  timeoutSeconds: 5
+
+  # Limits which namespaces the webhook intercepts.
+  # Excluding kube-system keeps the controller out of the control plane's way,
+  # and stops it from interfering with its own eviction if it runs there.
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values: ["kube-system"]
+
+# TLS for the webhook server.
+#
+# enabled: true  -> the chart creates a self-signed cert-manager Issuer and
+#                   Certificate, and cert-manager injects the CA bundle.
+#                   Requires cert-manager in the cluster.
+# enabled: false -> you provide the serving certificate yourself. Set
+#                   existingSecret to a TLS secret in the release namespace
+#                   holding tls.crt/tls.key, and caBundle to its base64-encoded
+#                   CA (or leave caBundle empty if another controller injects it).
+certManager:
+  enabled: true
+
+tls:
+  existingSecret: ""
+  caBundle: ""
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

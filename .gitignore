@@ -1,1 +1,6 @@
 /graceful-drain-controller
+
+# Jekyll docs site (local preview)
+docs/_site/
+docs/.jekyll-cache/
+docs/Gemfile.lock

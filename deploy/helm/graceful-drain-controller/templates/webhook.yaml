@@ -2,8 +2,10 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   name: {{ include "graceful-drain-controller.fullname" . }}
+  {{- if .Values.certManager.enabled }}
   annotations:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "graceful-drain-controller.fullname" . }}-cert
+  {{- end }}
   labels:
     {{- include "graceful-drain-controller.labels" . | nindent 4 }}
 webhooks:
@@ -15,6 +17,9 @@ webhooks:
     resources:   ["pods/eviction"]
     scope:       "Namespaced"
   clientConfig:
+    {{- if and (not .Values.certManager.enabled) .Values.tls.caBundle }}
+    caBundle: {{ .Values.tls.caBundle }}
+    {{- end }}
     service:
       namespace: {{ .Release.Namespace }}
       name: {{ include "graceful-drain-controller.fullname" . }}
@@ -22,9 +27,9 @@ webhooks:
       port: {{ .Values.webhookPort }}
   admissionReviewVersions: ["v1"]
   sideEffects: NoneOnDryRun
-  failurePolicy: Ignore
-  timeoutSeconds: 5
-  {{- if .Values.namespaceSelector }}
+  failurePolicy: {{ .Values.webhook.failurePolicy }}
+  timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
+  {{- with .Values.webhook.namespaceSelector }}
   namespaceSelector:
-    {{- toYaml .Values.namespaceSelector | nindent 4 }}
+    {{- toYaml . | nindent 4 }}
   {{- end }}
