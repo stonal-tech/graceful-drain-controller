@@ -25,7 +25,7 @@ nav_external_links:
     url: https://github.com/stonal-tech/graceful-drain-controller
 
 footer_content: >-
-  Apache 2.0 licensed.
+  MIT licensed.
   <a href="https://github.com/stonal-tech/graceful-drain-controller">Source on GitHub</a>.
 
 exclude:
