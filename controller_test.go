@@ -224,6 +224,31 @@ func waitForStatusSync(t *testing.T, ctx context.Context, cl client.Client, name
 	t.Fatal("timed out waiting for status to sync in cache")
 }
 
+// waitForTrackingAnnotation polls until the cached client reflects the tracking annotation
+// and returns the deployment. Needed because envtest uses a cached client that may return
+// stale data briefly.
+func waitForTrackingAnnotation(t *testing.T, ctx context.Context, cl client.Client, name, namespace string) *appsv1.Deployment {
+	t.Helper()
+
+	var deploy appsv1.Deployment
+
+	for range 20 {
+		if err := cl.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &deploy); err != nil {
+			t.Fatalf("get deployment: %v", err)
+		}
+
+		if _, ok := deploy.Annotations[AnnotationDrainRestartedAt]; ok {
+			return &deploy
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	t.Error("expected tracking annotation on deployment metadata")
+
+	return &deploy
+}
+
 // waitForAnnotationRemoved polls until the tracking annotation is removed from the deployment.
 // This is needed because envtest uses a cached client that may return stale data briefly.
 func waitForAnnotationRemoved(t *testing.T, ctx context.Context, cl client.Client, name, namespace string) {
