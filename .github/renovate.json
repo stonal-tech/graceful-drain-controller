@@ -1,33 +1,30 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "prConcurrentLimit": 1,
-  "postUpdateOptions": ["gomodTidyAll"],
+  "extends": [
+    "config:recommended",
+    ":semanticCommits"
+  ],
+  "timezone": "Europe/Paris",
+  "dependencyDashboard": true,
+  "postUpdateOptions": [
+    "gomodTidy",
+    "gomodUpdateImportPaths"
+  ],
+  "prConcurrentLimit": 2,
+  "prHourlyLimit": 1,
   "packageRules": [
     {
-      "description": "Minor/patch: automerge with squash",
-      "matchUpdateTypes": ["minor", "patch"],
-      "addLabels": ["deps"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "addLabels": [
+        "automerge"
+      ],
       "automerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash",
       "platformAutomerge": true
-    },
-    {
-      "matchDatasources": ["go"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "go dependencies (non-major)"
-    },
-    {
-      "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "github-actions (non-major)"
-    },
-    {
-      "description": "Major updates: no automerge",
-      "matchUpdateTypes": ["major"],
-      "addLabels": ["deps"],
-      "automerge": false
     }
   ]
 }
