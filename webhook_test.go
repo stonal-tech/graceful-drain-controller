@@ -9,12 +9,10 @@ import (
 	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -220,14 +218,7 @@ func TestWebhookDenyAndTriggerRestart(t *testing.T) {
 
 	// Verify deployment got the tracking annotation (but NOT the pod template annotation —
 	// that's the reconciler's job).
-	var updated appsv1.Deployment
-	if err := te.client.Get(ctx, types.NamespacedName{Name: deploy.Name, Namespace: ns}, &updated); err != nil {
-		t.Fatalf("get deployment: %v", err)
-	}
-
-	if _, ok := updated.Annotations[AnnotationDrainRestartedAt]; !ok {
-		t.Error("expected tracking annotation on deployment metadata")
-	}
+	updated := waitForTrackingAnnotation(t, ctx, te.client, deploy.Name, ns)
 
 	if updated.Spec.Template.Annotations != nil {
 		if _, ok := updated.Spec.Template.Annotations[AnnotationRestartedAt]; ok {
