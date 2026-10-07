@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -138,13 +139,42 @@ func warnIfBadStrategy(ctx context.Context, deploy *appsv1.Deployment) {
 		return
 	}
 
-	if ru.MaxSurge != nil && ru.MaxSurge.IntValue() == 0 {
-		slog.WarnContext(ctx, "deployment has maxSurge=0, rollout restart will cause downtime",
-			"deployment", deploy.Name, "namespace", deploy.Namespace)
+	replicas := int32(1)
+	if deploy.Spec.Replicas != nil {
+		replicas = *deploy.Spec.Replicas
 	}
 
-	if ru.MaxUnavailable != nil && ru.MaxUnavailable.IntValue() > 0 {
-		slog.WarnContext(ctx, "deployment has maxUnavailable>0, rollout restart may cause downtime",
-			"deployment", deploy.Name, "namespace", deploy.Namespace)
+	if ru.MaxSurge != nil {
+		surge, err := scaleRollingUpdateValue(ru.MaxSurge, replicas, true)
+		if err != nil {
+			slog.WarnContext(ctx, "deployment has an invalid maxSurge",
+				"deployment", deploy.Name, "namespace", deploy.Namespace, "maxSurge", ru.MaxSurge.String(), "error", err)
+		} else if surge == 0 {
+			slog.WarnContext(ctx, "deployment has maxSurge=0, rollout restart will cause downtime",
+				"deployment", deploy.Name, "namespace", deploy.Namespace, "maxSurge", ru.MaxSurge.String())
+		}
 	}
+
+	if ru.MaxUnavailable != nil {
+		unavailable, err := scaleRollingUpdateValue(ru.MaxUnavailable, replicas, false)
+		if err != nil {
+			slog.WarnContext(ctx, "deployment has an invalid maxUnavailable",
+				"deployment", deploy.Name, "namespace", deploy.Namespace, "maxUnavailable", ru.MaxUnavailable.String(), "error", err)
+		} else if unavailable > 0 {
+			slog.WarnContext(ctx, "deployment has maxUnavailable>0, rollout restart may cause downtime",
+				"deployment", deploy.Name, "namespace", deploy.Namespace, "maxUnavailable", ru.MaxUnavailable.String())
+		}
+	}
+}
+
+// scaleRollingUpdateValue resolves maxSurge or maxUnavailable to a pod count the way the
+// Deployment controller does: percentages are rounded up for maxSurge and down for
+// maxUnavailable. IntValue() would return 0 for any percentage.
+func scaleRollingUpdateValue(v *intstr.IntOrString, replicas int32, roundUp bool) (int, error) {
+	scaled, err := intstr.GetScaledValueFromIntOrPercent(v, int(replicas), roundUp)
+	if err != nil {
+		return 0, fmt.Errorf("scale %q against %d replicas: %w", v.String(), replicas, err)
+	}
+
+	return scaled, nil
 }
