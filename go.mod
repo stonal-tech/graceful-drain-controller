@@ -5,9 +5,9 @@ go 1.26.1
 require (
 	github.com/go-logr/logr v1.4.4
 	github.com/urfave/cli/v3 v3.14.0
-	k8s.io/api v0.37.2
-	k8s.io/apimachinery v0.37.2
-	k8s.io/client-go v0.37.2
+	k8s.io/api v0.37.3
+	k8s.io/apimachinery v0.37.3
+	k8s.io/client-go v0.37.3
 	sigs.k8s.io/controller-runtime v0.25.3
 )
 
